@@ -1,11 +1,6 @@
-import React from 'react'
-import ReactDOM from 'react-dom/client'
+import { createApp } from 'vue'
 import WorkApp from './WorkApp.jsx'
 import '../index.css'
 import '../registerServiceWorker.js'
 
-ReactDOM.createRoot(document.getElementById('root')).render(
-  <React.StrictMode>
-    <WorkApp />
-  </React.StrictMode>,
-)
+createApp(WorkApp).mount('#root')

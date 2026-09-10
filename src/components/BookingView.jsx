@@ -2,6 +2,10 @@ import MinguoDatePicker from './MinguoDatePicker.jsx';
 
 export default function BookingView(props) {
   const { activeTab, applicantName, setApplicantName, phone, setPhone, email, setEmail, county, setCounty, district, setDistrict, detailAddress, setDetailAddress, selectedItems, photos, setPhotos, preferredDate, setPreferredDate, getUnavailableBookingReason, preferredTimeSlot, setPreferredTimeSlot, locationNote, setLocationNote, setAgreedTerms, errors, setErrors, isSubmitting, submitSecondsLeft, handleItemQtyChange, getItemQty, getItemNote, handleItemNoteChange, handleFileUpload, isAllTermsAgreed, handleFormSubmit, CATEGORIES, COUNTIES, DISTRICTS_BY_COUNTY, TERMS_LIST, formatMinguoDate, formatTaiwanPhone } = props;
+  // 不使用 toLocaleDateString：部分瀏覽器會回傳 2026/9/10，造成字串比較時所有
+  // YYYY-MM-DD 日曆日期都被誤判為早於今天而無法點選。
+  const today = new Date();
+  const minBookingDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
   return (
     <>
@@ -232,9 +236,9 @@ export default function BookingView(props) {
                     <div>
                       <label className="block text-xs font-bold text-slate-300 mb-1">希望清運日期</label>
                       <MinguoDatePicker
-                        min={new Date().toLocaleDateString('sv-SE')}
+                        min={minBookingDate}
                         value={preferredDate}
-                        onChange={(nextDate) => {
+                        setSelectedDate={(nextDate) => {
                           const reason = getUnavailableBookingReason(nextDate);
                           if (reason) {
                             setErrors((current) => ({ ...current, preferredDate: reason }));

@@ -1,11 +1,6 @@
-import React from 'react'
-import ReactDOM from 'react-dom/client'
+import { createApp } from 'vue'
 import AdminApp from './AdminApp.jsx'
 import '../index.css'
 import '../registerServiceWorker.js'
 
-ReactDOM.createRoot(document.getElementById('root')).render(
-  <React.StrictMode>
-    <AdminApp />
-  </React.StrictMode>,
-)
+createApp(AdminApp).mount('#root')

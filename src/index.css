@@ -94,6 +94,44 @@
 .app-shell select:focus,
 .app-shell textarea:focus { border-color: #059669 !important; }
 
+/* 管理端排班欄位不可依賴 CDN Tailwind 的任意子選擇器；明確定義控制項，
+   避免部署版只顯示欄位名稱而沒有日期、下拉選單或輸入框。 */
+.dispatch-field { display: block; min-width: 0; }
+.dispatch-field-control { display: block; min-width: 0; }
+.dispatch-field-control > :is(input, select, textarea, button, div) { width: 100%; }
+.dispatch-field-control :is(input, select, textarea) {
+  display: block;
+  box-sizing: border-box;
+  min-height: 42px;
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: .5rem;
+  padding: .625rem .75rem;
+}
+.dispatch-field-control > div > button:first-child {
+  display: flex;
+  box-sizing: border-box;
+  min-height: 42px;
+  width: 100%;
+}
+
+/* 民眾端民國日曆必須高於所有表單卡片，且不受容器 overflow 影響。 */
+.minguo-calendar-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(15, 23, 42, .24);
+}
+.minguo-calendar-dialog {
+  width: min(20rem, 100%);
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+}
+
 .app-shell :where(.text-white, .text-slate-100) { color: #12372d; }
 .app-shell :where(.text-slate-200) { color: #284b42; }
 .app-shell :where(.text-slate-300) { color: #49675f; }

@@ -312,7 +312,7 @@ flowchart TD
 請幫我建立一套「大型廢棄家具預約清運管理系統」，介面使用繁體中文，分成民眾端與清潔隊管理端。
 
 技術需求：
-- 使用 React、Vite 與 Tailwind CSS。
+- 使用 Vue 3、Vite 與 Tailwind CSS。
 - 民眾端入口為 index.html，管理端入口為 admin.html。
 - 支援手機、平板與桌面。
 - 使用 Google Apps Script 作為後端。
@@ -390,11 +390,11 @@ API Key、管理密碼及外部服務設定必須放在 Script Properties。所�
 
 ## 使用技術
 
-- React 18
+- Vue 3（JSX 函式元件）
 - Vite 5
 - Tailwind CSS 3（`src/` 版本）及 Tailwind CDN（目前 HTML 部署入口）
-- Lucide React / 內嵌圖示
-- `qrcode.react` / QRCode.js
+- 內嵌圖示
+- QRCode.js
 - Google Apps Script
 - Google Gemini API
 - Google Sheets、Google Drive 與 Google Maps 相關服務
@@ -410,12 +410,12 @@ API Key、管理密碼及外部服務設定必須放在 Script Properties。所�
 │     └─ deploy.yml         GitHub Pages 自動建置與部署流程
 ├─ scripts/
 │  └─ update-github.ps1     建置、提交及推送輔助腳本
-├─ src/                     React 應用程式原始碼
+├─ src/                     Vue 應用程式原始碼
 │  ├─ admin/                清潔隊管理端
 │  │  ├─ components/        後台頁首、案件、儀表板、結案及列印元件
 │  │  ├─ utils/             管理端格式化工具
 │  │  ├─ AdminApp.jsx       管理端狀態、API 與操作邏輯
-│  │  └─ main.jsx           管理端 React 掛載入口
+│  │  └─ main.jsx           管理端 Vue 掛載入口
 │  ├─ components/           民眾端預約、查詢、頁首尾及列印元件
 │  ├─ work/                 現場人員行動作業入口與畫面
 │  ├─ data/
@@ -424,7 +424,7 @@ API Key、管理密碼及外部服務設定必須放在 Script Properties。所�
 │  │  └─ formatters.js      民國日期與電話格式化工具
 │  ├─ App.jsx               民眾端狀態、預約及查詢邏輯
 │  ├─ index.css             Tailwind 與全域樣式
-│  └─ main.jsx              民眾端 React 掛載入口
+│  └─ main.jsx              民眾端 Vue 掛載入口
 ├─ index.html               民眾端 HTML 與 /src/main.jsx 入口
 ├─ admin.html               管理端 HTML 與 /src/admin/main.jsx 入口
 ├─ work.html                現場端 HTML 與 /src/work/main.jsx 入口
@@ -632,7 +632,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-github.ps1 -C
 
 ## 建議後續改善
 
-- 將 `index.html`、`admin.html` 的重複程式遷移至 `src/` 共用 React 元件。
+- 將 `index.html`、`admin.html` 的重複程式遷移至 `src/` 共用 Vue 元件。
 - 將 GAS 網址改用建置環境變數，不在程式碼中固定正式端點。
 - 改由後端原子性產生預約單號，避免同時送件衝突。
 - 為所有管理 API 加上伺服器端授權與稽核紀錄。

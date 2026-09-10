@@ -1,0 +1,89 @@
+// Follow this setup guide to integrate the Deno language server with your editor:
+// https://deno.land/manual/getting_started/setup_your_environment
+// This enables autocomplete, go to definition, etc.
+
+// Setup type definitions for built-in Supabase Runtime APIs
+import "@supabase/functions-js/edge-runtime.d.ts"
+import { withSupabase } from "@supabase/server"
+
+const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, apikey, content-type", "Access-Control-Allow-Methods": "POST, OPTIONS" }
+const reply = (body: unknown, status = 200) => Response.json(body, { status, headers: cors })
+const error = (message: string, status = 400) => reply({ ok: false, message }, status)
+const caseNo = () => { const d = new Date(); return `${d.getFullYear() - 1911}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}-${crypto.randomUUID().slice(0, 8).toUpperCase()}` }
+
+export default {
+  fetch: withSupabase({ auth: ["publishable", "secret"] }, async (req, ctx) => {
+    if (req.method === "OPTIONS") return new Response(null, { headers: cors })
+    if (req.method !== "POST") return error("只接受 POST 請求", 405)
+    let body: Record<string, unknown>; try { body = await req.json() } catch { return error("請求格式不正確") }
+    const action = String(body.action || "")
+    if (action === "health") return reply({ ok: true, service: "case-api" })
+
+    if (action === "publicCreate") {
+      const applicant = String(body.applicant || "").trim(), phone = String(body.phone || "").trim(), address = String(body.address || body.addressDetail || "").trim(), wasteType = String(body.wasteType || "").trim()
+      if (!applicant || !phone || !address || !wasteType) return error("請完整填寫申請資料")
+      const no = caseNo()
+      const { error: dbError } = await ctx.supabaseAdmin.from("cases").insert({ case_no: no, applicant, phone, address, waste_type: wasteType, quantity: Math.max(1, Number(body.quantity || 1)), status: "待處理", requested_scheduled_at: body.preferredDate ? `${body.preferredDate}T00:00:00+08:00` : null, dispatch_period: String(body.preferredTimeSlot || ""), dispatch_note: String(body.locationNote || ""), email: String(body.email || "") || null })
+      return dbError ? error(dbError.message, 500) : reply({ ok: true, caseNo: no })
+    }
+    if (action === "query") {
+      const { data, error: dbError } = await ctx.supabaseAdmin.rpc("query_case", { p_case_no: String(body.caseNo || ""), p_phone: String(body.phone || "") })
+      return dbError ? error(dbError.message, 500) : reply({ ok: true, case: data?.[0] || null })
+    }
+    if (action === "workerList") {
+      const { data, error: dbError } = await ctx.supabaseAdmin.rpc("worker_list", { p_pin: String(body.pin || ""), p_keyword: String(body.keyword || "") })
+      return dbError ? error("工作人員驗證碼不正確", 401) : reply({ ok: true, cases: data || [] })
+    }
+    if (action === "workerComplete") {
+      const { error: dbError } = await ctx.supabaseAdmin.rpc("worker_complete_case", { p_pin: String(body.pin || ""), p_case_id: String(body.caseId || ""), p_note: String(body.note || ""), p_photo_paths: body.photoPaths || [] })
+      return dbError ? error(dbError.message, 400) : reply({ ok: true })
+    }
+
+    // 其餘操作皆需要登入的 Supabase 管理員。
+    const bearer = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") || ""
+    const { data: userResult, error: authError } = await ctx.supabaseAdmin.auth.getUser(bearer)
+    if (authError || userResult.user?.email?.toLowerCase() !== "sanyi246751@gmail.com") return error("管理員權限不足", 403)
+    if (action === "upload") {
+      const name = String(body.fileName || "photo.jpg").replace(/[^\w.-]/g, "_")
+      const bytes = Uint8Array.from(atob(String(body.base64 || "")), (c) => c.charCodeAt(0))
+      const path = `desktop/${Date.now()}-${name}`
+      const { error: uploadError } = await ctx.supabaseAdmin.storage.from("case-photos").upload(path, bytes, { contentType: String(body.mimeType || "image/jpeg"), upsert: false })
+      return uploadError ? error(uploadError.message, 500) : reply({ ok: true, fileId: path })
+    }
+    if (action === "getImage") {
+      const path = String(body.fileId || "")
+      if (!path || path.includes("..")) return error("照片路徑不正確")
+      const { data, error: downloadError } = await ctx.supabaseAdmin.storage.from("case-photos").download(path)
+      if (downloadError || !data) return error(downloadError?.message || "找不到照片", 404)
+      const bytes = new Uint8Array(await data.arrayBuffer())
+      let binary = ""; for (const byte of bytes) binary += String.fromCharCode(byte)
+      return reply({ ok: true, base64: btoa(binary) })
+    }
+    if (action === "list") { const { data, error: dbError } = await ctx.supabaseAdmin.from("cases").select("*").order("created_at", { ascending: false }); return dbError ? error(dbError.message, 500) : reply({ ok: true, cases: data || [] }) }
+    if (action === "dispatchOptions") {
+      const [{ data: vehicles, error: vehicleError }, { data: workers, error: workerError }] = await Promise.all([ctx.supabaseAdmin.from("vehicles").select("vehicle_no,fuel_efficiency,co2_per_liter").eq("active", true).order("vehicle_no"), ctx.supabaseAdmin.from("workers").select("name").eq("active", true).order("name")])
+      return vehicleError || workerError ? error(vehicleError?.message || workerError?.message || "讀取派車設定失敗", 500) : reply({ ok: true, dispatch: { vehicles: vehicles || [], workers: (workers || []).map((item) => item.name) } })
+    }
+    if (action === "updateDispatchOptions") {
+      const vehicles = Array.isArray(body.vehicles) ? body.vehicles : []
+      const workers = Array.isArray(body.workers) ? body.workers : []
+      const { error: vehicleError } = await ctx.supabaseAdmin.from("vehicles").upsert(vehicles.map((item: any) => ({ vehicle_no: String(item.vehicle_no || item).trim(), fuel_efficiency: Number(item.fuel_efficiency || 5), co2_per_liter: Number(item.co2_per_liter || 2.69), active: true })).filter((item) => item.vehicle_no), { onConflict: "vehicle_no" })
+      const { error: workerError } = await ctx.supabaseAdmin.from("workers").upsert(workers.map((name) => ({ name: String(name).trim(), active: true })).filter((item) => item.name), { onConflict: "name" })
+      return vehicleError || workerError ? error(vehicleError?.message || workerError?.message || "儲存派車設定失敗", 500) : reply({ ok: true })
+    }
+    if (action === "upsert") { const item = body.case as Record<string, unknown>; if (!item?.case_no) return error("案件編號不可空白"); const { error: dbError } = await ctx.supabaseAdmin.from("cases").upsert(item, { onConflict: "case_no" }); return dbError ? error(dbError.message, 500) : reply({ ok: true }) }
+    if (action === "delete") { const { error: dbError } = await ctx.supabaseAdmin.from("cases").delete().eq("case_no", String(body.caseNo || "")); return dbError ? error(dbError.message, 500) : reply({ ok: true }) }
+    return error("不支援的操作")
+  }),
+}
+
+/* To invoke locally:
+
+  1. Run `supabase start` (see: https://supabase.com/docs/reference/cli/supabase-start)
+  2. Make an HTTP request:
+
+  curl -i --location --request POST 'http://127.0.0.1:54321/functions/v1/case-api' \
+    --header 'apiKey: sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH' \
+    --data '{"name":"Functions"}'
+
+*/

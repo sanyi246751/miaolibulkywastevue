@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef } from '../../vueHooks.js';
 
 // Helper QR Code Component
 export default function QRCodeBox({ value, size = 96 }) {

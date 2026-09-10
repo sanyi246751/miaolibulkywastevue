@@ -1,127 +1,29 @@
-const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbw__DGTALQtDo9H5SgahKAWV-iwQ9enXcOgH2Ns9FaW2SrVv8mkc3GVkbfEcREa_E9tRg/exec'
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
+const PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
+const CASE_API_URL = `${SUPABASE_URL}/functions/v1/case-api`
+export const GAS_URL = ''
 
-// 此專案的民眾端、管理端與 PySide6 必須共用同一個 GAS 部署。
-// 不再採用瀏覽器內舊版 gas_web_app_url，避免切換版本後仍送到不相容的後端。
-export const GAS_URL = import.meta.env.VITE_GAS_URL || DEFAULT_GAS_URL
-
-const toMinguoDateTime = (value) => {
-  const text = String(value || '').trim()
-  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/) 
-  if (!match) return text
-  return `${Number(match[1]) - 1911}/${match[2]}/${match[3]}${match[4] ? ` ${match[4]}:${match[5]}` : ''}`
-}
-
-const readJson = async (response) => {
-  if (!response.ok) throw new Error(`連線失敗（HTTP ${response.status}）`)
-  const result = await response.json()
-  if (!result.ok) throw new Error(result.message || '案件服務處理失敗')
+const request = async (action, payload = {}, token = '') => {
+  const response = await fetch(CASE_API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: PUBLISHABLE_KEY, Authorization: `Bearer ${token || PUBLISHABLE_KEY}` }, body: JSON.stringify({ action, ...payload }) })
+  const result = await response.json().catch(() => ({}))
+  if (!response.ok || !result.ok) throw new Error(result.message || `連線失敗（HTTP ${response.status}）`)
   return result
 }
 
-export const adminPost = async (action, payload = {}) => readJson(await fetch(GAS_URL, {
-  method: 'POST',
-  headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-  body: JSON.stringify({ action, apiToken: sessionStorage.getItem('admin_api_token') || '', ...payload })
-}))
+const fromDb = (item) => ({ ...item, case_no: item.case_no, scheduled_at: item.scheduled_at, requested_scheduled_at: item.requested_scheduled_at })
+const dbCase = (item) => ({ case_no: item.case_no || item.caseNo, applicant: item.applicant, phone: item.phone, address: item.address, waste_type: item.waste_type || item.wasteType, quantity: Number(item.quantity || 1), status: item.status, scheduled_at: item.scheduled_at || item.scheduledAt || null, requested_scheduled_at: item.requested_scheduled_at || item.requestedScheduledAt || null, fee_amount: Number(item.fee_amount || item.feeAmount || 0), vehicle_no: item.vehicle_no || item.vehicleNo || null, worker_name: item.worker_name || item.workerName || null, dispatch_period: item.dispatch_period || item.dispatchPeriod || null, dispatch_trip: Number(item.dispatch_trip || item.dispatchTrip || 1), dispatch_note: item.dispatch_note || item.dispatchNote || null, quantity_review_status: item.quantity_review_status || item.quantityReviewStatus || '待人工核可', confirmed_items: item.confirmed_items ? (typeof item.confirmed_items === 'string' ? JSON.parse(item.confirmed_items) : item.confirmed_items) : [], review_note: item.review_note || item.reviewNote || null, chargeable_quantity: Number(item.chargeable_quantity || item.chargeableQuantity || 0), annual_count: Number(item.annual_count || item.annualCount || 0), report_source: item.report_source || item.reportSource || '網路申請' })
 
-export const adminLogin = async (password) => readJson(await fetch(GAS_URL, {
-  method: 'POST',
-  headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-  body: JSON.stringify({ action: 'adminLogin', password })
-}))
-
-export const queryCase = async (caseNo, phone) => {
-  const url = new URL(GAS_URL)
-  url.searchParams.set('action', 'query')
-  url.searchParams.set('caseNo', caseNo)
-  url.searchParams.set('phone', phone)
-  return readJson(await fetch(url))
+export const adminLogin = async (email, password) => {
+  const response = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, { method: 'POST', headers: { apikey: PUBLISHABLE_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) })
+  const result = await response.json(); if (!response.ok || !result.access_token) throw new Error(result.error_description || '登入失敗')
+  return { token: result.access_token }
 }
-
-export const createPublicCase = (values) => new Promise((resolve, reject) => {
-  const requestId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`
-  const frameName = `public-create-${requestId}`
-  const iframe = document.createElement('iframe')
-  const form = document.createElement('form')
-  let timeoutId
-
-  const cleanup = () => {
-    clearTimeout(timeoutId)
-    window.removeEventListener('message', handleMessage)
-    form.remove()
-    iframe.remove()
-  }
-  const handleMessage = (event) => {
-    const result = event.data
-    if (!result || result.type !== 'publicCreateResult' || result.requestId !== requestId) return
-    cleanup()
-    if (result.ok && result.caseNo) resolve(result.caseNo)
-    else reject(new Error(result.message || '申請未完成'))
-  }
-  const addField = (name, value) => {
-    const input = document.createElement('input')
-    input.type = 'hidden'; input.name = name; input.value = value ?? ''
-    form.appendChild(input)
-  }
-
-  iframe.name = frameName
-  iframe.hidden = true
-  form.method = 'POST'
-  form.action = GAS_URL
-  form.target = frameName
-  form.hidden = true
-  const fields = {
-    action: 'publicCreate', requestId, website: '', applicant: values.applicant,
-    phone: values.phone, addressDetail: values.addressDetail,
-    wasteType: values.wasteType, quantity: String(values.quantity),
-    preferredDate: toMinguoDateTime(values.preferredDate), preferredTimeSlot: values.preferredTimeSlot || '',
-    locationNote: values.locationNote || '', email: values.email || ''
-  }
-  Object.entries(fields).forEach(([name, value]) => addField(name, value))
-  if (values.photo) {
-    addField('fileBase64', values.photo.base64)
-    addField('fileName', values.photo.name)
-    addField('mimeType', values.photo.mimeType)
-  }
-
-  window.addEventListener('message', handleMessage)
-  document.body.append(iframe, form)
-  timeoutId = setTimeout(() => {
-    cleanup()
-    reject(new Error('送出逾時，請確認網路後再試；若案件已建立，請勿重複送出並洽承辦人員確認。'))
-  }, 120000)
-  form.submit()
-})
-export const workerGet = async (action, parameters = {}) => {
-  const url = new URL(GAS_URL)
-  url.searchParams.set('action', action)
-  Object.entries(parameters).forEach(([key, value]) => url.searchParams.set(key, value ?? ''))
-  return readJson(await fetch(url))
+export const adminPost = async (action, payload = {}) => {
+  const result = await request(action, action === 'upsert' ? { case: dbCase(payload.case) } : payload, sessionStorage.getItem('admin_api_token') || '')
+  return action === 'list' ? { ...result, cases: result.cases.map(fromDb) } : result
 }
-
-export const workerPost = async (action, payload = {}) => readJson(await fetch(GAS_URL, {
-  method: 'POST',
-  headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-  body: JSON.stringify({ action, ...payload })
-}))
-
-export const toCasePayload = (item) => ({
-  caseNo: item.case_no, applicant: item.applicant, phone: item.phone,
-  address: item.address, wasteType: item.waste_type,
-  quantity: Number(item.quantity || 1), status: item.status,
-  scheduledAt: toMinguoDateTime(item.scheduled_at), feeAmount: Number(item.fee_amount || 0),
-  longitude: item.longitude, latitude: item.latitude,
-  geocodedAddress: item.geocoded_address, photoFileId: item.photo_file_id,
-  aiResult: item.ai_result, annualCount: Number(item.annual_count || 0),
-  freeEligible: item.free_eligible, vehicleNo: item.vehicle_no,
-  workerName: item.worker_name, dispatchStatus: item.status,
-  dispatchPeriod: item.dispatch_period, dispatchTrip: Number(item.dispatch_trip || 1),
-  dispatchOrigin: item.dispatch_origin, dispatchNote: item.dispatch_note,
-  feeNote: item.fee_note, quantityReviewStatus: item.quantity_review_status,
-  confirmedItems: item.confirmed_items, reviewNote: item.review_note,
-  chargeableQuantity: Number(item.chargeable_quantity || 0),
-  completionDistanceKm: item.completion_distance_km, completionCarbonKg: item.completion_carbon_kg,
-  reportSource: item.report_source, caseId: item.case_id,
-  version: Number(item.version || 1) + 1,
-  createdAt: toMinguoDateTime(item.created_at), updatedAt: toMinguoDateTime(new Date().toISOString())
-})
+export const createPublicCase = async (values) => (await request('publicCreate', values)).caseNo
+export const queryCase = async (caseNo, phone) => ({ case: (await request('query', { caseNo, phone })).case })
+export const workerGet = async (action, parameters = {}) => request(action === 'workerList' ? 'workerList' : action, parameters)
+export const workerPost = async (action, payload = {}) => request(action === 'completeWithPhoto' ? 'workerComplete' : action, { ...payload, caseId: payload.id, photoPaths: [] })
+export const toCasePayload = (item) => item

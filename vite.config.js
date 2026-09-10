@@ -1,11 +1,16 @@
 import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
+import vueJsx from '@vitejs/plugin-vue-jsx'
 import { resolve } from 'node:path'
 
 export default defineConfig(({ command, isPreview }) => ({
   // 開發伺服器使用根路徑；GitHub Pages 專案網站必須使用儲存庫名稱作為子路徑。
   base: command === 'serve' && !isPreview ? '/' : '/miaolibulkywaste/',
-  plugins: [react()],
+  plugins: [
+    { name: 'dom-events-for-vue', enforce: 'pre', transform(code, id) {
+      return /\.jsx$/.test(id) ? { code: code.replace(/\bonChange=/g, 'onInput='), map: null } : null
+    } },
+    vueJsx()
+  ],
   build: {
     // Windows 中文路徑下的 esbuild minifier 會在完成轉譯後異常結束；
     // 保留 Rollup 打包，避免正式建置無輸出。
