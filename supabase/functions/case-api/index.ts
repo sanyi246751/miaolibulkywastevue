@@ -50,6 +50,16 @@ export default {
       const { error: uploadError } = await ctx.supabaseAdmin.storage.from("case-photos").upload(path, bytes, { contentType: String(body.mimeType || "image/jpeg"), upsert: false })
       return uploadError ? error(uploadError.message, 500) : reply({ ok: true, fileId: path })
     }
+    if (action === "analyzeImage") {
+      // 桌面版先將照片安全寫入私有 Storage；未設定 AI 服務時仍可由承辦人逐項人工核可。
+      const name = String(body.fileName || "photo.jpg").replace(/[^\w.-]/g, "_")
+      const bytes = Uint8Array.from(atob(String(body.base64 || "")), (c) => c.charCodeAt(0))
+      if (!bytes.length) return error("照片內容不可空白")
+      const path = `desktop/${Date.now()}-${name}`
+      const { error: uploadError } = await ctx.supabaseAdmin.storage.from("case-photos").upload(path, bytes, { contentType: String(body.mimeType || "image/jpeg"), upsert: false })
+      if (uploadError) return error(uploadError.message, 500)
+      return reply({ ok: true, fileId: path, analysis: { items: [], totalCount: 0, needsReview: true, summary: "照片已上傳，請人工確認品項與數量" } })
+    }
     if (action === "getImage") {
       const path = String(body.fileId || "")
       if (!path || path.includes("..")) return error("照片路徑不正確")
@@ -59,6 +69,12 @@ export default {
       let binary = ""; for (const byte of bytes) binary += String.fromCharCode(byte)
       return reply({ ok: true, base64: btoa(binary) })
     }
+    if (action === "deleteImage") {
+      const path = String(body.fileId || "")
+      if (!path || path.includes("..") || !path.startsWith("desktop/")) return error("照片路徑不正確")
+      const { error: removeError } = await ctx.supabaseAdmin.storage.from("case-photos").remove([path])
+      return removeError ? error(removeError.message, 500) : reply({ ok: true })
+    }
     if (action === "list") { const { data, error: dbError } = await ctx.supabaseAdmin.from("cases").select("*").order("created_at", { ascending: false }); return dbError ? error(dbError.message, 500) : reply({ ok: true, cases: data || [] }) }
     if (action === "dispatchOptions") {
       const [{ data: vehicles, error: vehicleError }, { data: workers, error: workerError }] = await Promise.all([ctx.supabaseAdmin.from("vehicles").select("vehicle_no,fuel_efficiency,co2_per_liter").eq("active", true).order("vehicle_no"), ctx.supabaseAdmin.from("workers").select("name").eq("active", true).order("name")])
@@ -67,9 +83,14 @@ export default {
     if (action === "updateDispatchOptions") {
       const vehicles = Array.isArray(body.vehicles) ? body.vehicles : []
       const workers = Array.isArray(body.workers) ? body.workers : []
-      const { error: vehicleError } = await ctx.supabaseAdmin.from("vehicles").upsert(vehicles.map((item: any) => ({ vehicle_no: String(item.vehicle_no || item).trim(), fuel_efficiency: Number(item.fuel_efficiency || 5), co2_per_liter: Number(item.co2_per_liter || 2.69), active: true })).filter((item) => item.vehicle_no), { onConflict: "vehicle_no" })
-      const { error: workerError } = await ctx.supabaseAdmin.from("workers").upsert(workers.map((name) => ({ name: String(name).trim(), active: true })).filter((item) => item.name), { onConflict: "name" })
-      return vehicleError || workerError ? error(vehicleError?.message || workerError?.message || "儲存派車設定失敗", 500) : reply({ ok: true })
+      const vehicleRows = vehicles.map((item: any) => ({ vehicle_no: String(item.vehicle_no || item).trim(), fuel_efficiency: Number(item.fuel_efficiency || 5), co2_per_liter: Number(item.co2_per_liter || 2.69), active: true })).filter((item) => item.vehicle_no)
+      const workerRows = workers.map((name) => ({ name: String(name).trim(), active: true })).filter((item) => item.name)
+      const { error: disableVehicleError } = await ctx.supabaseAdmin.from("vehicles").update({ active: false }).eq("active", true)
+      const { error: disableWorkerError } = await ctx.supabaseAdmin.from("workers").update({ active: false }).eq("active", true)
+      const vehicleResult = vehicleRows.length ? await ctx.supabaseAdmin.from("vehicles").upsert(vehicleRows, { onConflict: "vehicle_no" }) : { error: null }
+      const workerResult = workerRows.length ? await ctx.supabaseAdmin.from("workers").upsert(workerRows, { onConflict: "name" }) : { error: null }
+      const saveError = disableVehicleError || disableWorkerError || vehicleResult.error || workerResult.error
+      return saveError ? error(saveError.message || "儲存派車設定失敗", 500) : reply({ ok: true })
     }
     if (action === "upsert") { const item = body.case as Record<string, unknown>; if (!item?.case_no) return error("案件編號不可空白"); const { error: dbError } = await ctx.supabaseAdmin.from("cases").upsert(item, { onConflict: "case_no" }); return dbError ? error(dbError.message, 500) : reply({ ok: true }) }
     if (action === "delete") { const { error: dbError } = await ctx.supabaseAdmin.from("cases").delete().eq("case_no", String(body.caseNo || "")); return dbError ? error(dbError.message, 500) : reply({ ok: true }) }
