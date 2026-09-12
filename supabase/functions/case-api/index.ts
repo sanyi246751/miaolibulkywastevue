@@ -127,7 +127,8 @@ export default {
         const year = new Date(String(item.created_at || Date.now())).getFullYear()
         const { data: addressCases, error: countError } = await ctx.supabaseAdmin.from("cases").select("case_no,created_at,status").eq("address", address)
         if (countError) return error(countError.message, 500)
-        const annualCount = (addressCases || []).filter((entry) => entry.status !== "已取消" && new Date(entry.created_at || Date.now()).getFullYear() === year).length || 1
+        const annualCases = (addressCases || []).filter((entry) => entry.status !== "已取消" && new Date(entry.created_at || Date.now()).getFullYear() === year).sort((first, second) => String(first.created_at || "").localeCompare(String(second.created_at || "")) || String(first.case_no || "").localeCompare(String(second.case_no || "")))
+        const annualCount = Math.max(1, annualCases.findIndex((entry) => entry.case_no === item.case_no) + 1)
         const quantity = Math.max(0, Number(item.quantity || 0))
         const chargeableQuantity = annualCount <= 3 ? Math.max(0, quantity - 2) : quantity
         caseToSave = { ...item, annual_count: annualCount, chargeable_quantity: chargeableQuantity, fee_amount: chargeableQuantity * 200 }
