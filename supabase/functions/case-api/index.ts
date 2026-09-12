@@ -123,18 +123,21 @@ export default {
       const originValues = String(body.origin || "24.380891,120.734372").split(",").map(Number)
       if (originValues.length !== 2 || originValues.some(Number.isNaN)) return error("出發點座標格式不正確")
       const [originLat, originLon] = originValues
+      const validCoordinate = (latitude: number, longitude: number) => Number.isFinite(latitude) && Number.isFinite(longitude) && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180 && !(latitude === 0 && longitude === 0)
+      if (!validCoordinate(originLat, originLon)) return error("出發點座標無效")
       const { data: cases, error: casesError } = await ctx.supabaseAdmin.from("cases").select("case_no,address,latitude,longitude").in("case_no", caseNos)
       if (casesError) return error(casesError.message, 500)
       const points: Array<{ case_no: string; latitude: number; longitude: number }> = []
       for (const item of cases || []) {
         let latitude = Number(item.latitude), longitude = Number(item.longitude)
-        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+        // 0,0 是過去資料中的預設值，並非台灣地址；一律重新定位。
+        if (!validCoordinate(latitude, longitude)) {
           const geocodeUrl = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=tw&q=${encodeURIComponent(item.address)}`
           const geocodeResponse = await fetch(geocodeUrl, { headers: { "User-Agent": "MiaoliBulkyWaste/1.0 (contact: sanyi246751@gmail.com)", "Accept-Language": "zh-TW" } })
           const matches = await geocodeResponse.json().catch(() => [])
           if (!geocodeResponse.ok || !Array.isArray(matches) || !matches[0]) return error(`找不到地址座標：${item.address}`, 422)
           latitude = Number(matches[0].lat); longitude = Number(matches[0].lon)
-          if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return error(`地址座標格式錯誤：${item.address}`, 422)
+          if (!validCoordinate(latitude, longitude)) return error(`地址座標格式錯誤：${item.address}`, 422)
           const { error: saveCoordinateError } = await ctx.supabaseAdmin.from("cases").update({ latitude, longitude }).eq("case_no", item.case_no)
           if (saveCoordinateError) return error(saveCoordinateError.message, 500)
           await new Promise((resolve) => setTimeout(resolve, 1100))
