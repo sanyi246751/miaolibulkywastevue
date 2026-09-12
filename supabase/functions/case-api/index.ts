@@ -117,7 +117,24 @@ export default {
       const saveError = disableVehicleError || disableWorkerError || vehicleResult.error || workerResult.error
       return saveError ? error(saveError.message || "儲存派車設定失敗", 500) : reply({ ok: true })
     }
-    if (action === "upsert") { const item = body.case as Record<string, unknown>; if (!item?.case_no) return error("案件編號不可空白"); const { error: dbError } = await ctx.supabaseAdmin.from("cases").upsert(item, { onConflict: "case_no" }); return dbError ? error(dbError.message, 500) : reply({ ok: true }) }
+    if (action === "upsert") {
+      const item = body.case as Record<string, unknown>
+      if (!item?.case_no) return error("案件編號不可空白")
+      // 以同一地址、同一建立年度的非取消案件為準：前 3 次申請各有前 2 件免費。
+      let caseToSave = item
+      if (item.quantity_review_status === "人工已核可") {
+        const address = String(item.address || "").trim()
+        const year = new Date(String(item.created_at || Date.now())).getFullYear()
+        const { data: addressCases, error: countError } = await ctx.supabaseAdmin.from("cases").select("case_no,created_at,status").eq("address", address)
+        if (countError) return error(countError.message, 500)
+        const annualCount = (addressCases || []).filter((entry) => entry.status !== "已取消" && new Date(entry.created_at || Date.now()).getFullYear() === year).length || 1
+        const quantity = Math.max(0, Number(item.quantity || 0))
+        const chargeableQuantity = annualCount <= 3 ? Math.max(0, quantity - 2) : quantity
+        caseToSave = { ...item, annual_count: annualCount, chargeable_quantity: chargeableQuantity, fee_amount: chargeableQuantity * 200 }
+      }
+      const { error: dbError } = await ctx.supabaseAdmin.from("cases").upsert(caseToSave, { onConflict: "case_no" })
+      return dbError ? error(dbError.message, 500) : reply({ ok: true })
+    }
     if (action === "delete") { const { error: dbError } = await ctx.supabaseAdmin.from("cases").delete().eq("case_no", String(body.caseNo || "")); return dbError ? error(dbError.message, 500) : reply({ ok: true }) }
     return error("不支援的操作")
   }),
