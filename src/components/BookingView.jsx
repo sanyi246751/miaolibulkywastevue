@@ -105,7 +105,7 @@ export default function BookingView(props) {
                         </label>
                         <input
                           type="text"
-                          placeholder="例如: 苗栗縣三義鄉廣盛村復興路69號"
+                          placeholder="例如: 廣盛村復興路69號"
                           value={detailAddress}
                           onChange={(e) => setDetailAddress(e.target.value)}
                           className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"

@@ -148,14 +148,15 @@ import { GAS_URL, createPublicCase, queryCase } from './api.js';
             mimeType: String(photo.url).slice(5, String(photo.url).indexOf(';')) || 'image/jpeg',
             base64: String(photo.url).split(',')[1]
           }));
+          const fullAddress = `${county}${district}${detailAddress.trim()}`;
           const bookingId = await createPublicCase({
             applicant: applicantName.trim(), phone: formatTaiwanPhone(phone),
-            addressDetail: detailAddress.trim(), wasteType, quantity: totalQuantity,
+            county, district, address: fullAddress, addressDetail: detailAddress.trim(), wasteType, quantity: totalQuantity,
             preferredDate, preferredTimeSlot, locationNote, email: email.trim(), photos: pendingPhotos
           });
           const newBooking = {
             id: bookingId, applicantName, phone: formatTaiwanPhone(phone), email,
-            county, district, address: detailAddress, preferredDate, preferredTimeSlot,
+            county, district, address: fullAddress, preferredDate, preferredTimeSlot,
             locationNote, items: selectedItems, photos: photos.map((item) => item.url),
             status: '待處理', statusTimeline: [{ status: '待處理', time: new Date().toISOString() }],
             createdAt: getMinguoTime(), agreedToTerms: true

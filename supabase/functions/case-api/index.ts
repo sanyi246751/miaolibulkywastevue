@@ -20,8 +20,10 @@ export default {
     if (action === "health") return reply({ ok: true, service: "case-api" })
 
     if (action === "publicCreate") {
-      const applicant = String(body.applicant || "").trim(), phone = String(body.phone || "").trim(), address = String(body.address || body.addressDetail || "").trim(), wasteType = String(body.wasteType || "").trim()
-      if (!applicant || !phone || !address || !wasteType) return error("請完整填寫申請資料")
+      const applicant = String(body.applicant || "").trim(), phone = String(body.phone || "").trim(), county = String(body.county || "").trim(), district = String(body.district || "").trim(), addressDetail = String(body.addressDetail || "").trim(), wasteType = String(body.wasteType || "").trim()
+      const suppliedAddress = String(body.address || "").trim()
+      const address = suppliedAddress || `${county}${district}${addressDetail}`
+      if (!applicant || !phone || !county || !district || !addressDetail || !address || !wasteType) return error("請完整填寫申請資料")
       const no = caseNo()
       // 民眾照片經 Edge Function 寫入私有 Storage，只在案件資料保存路徑，不公開原始檔。
       const inputs = Array.isArray(body.photos) ? body.photos : body.photo ? [body.photo] : []
