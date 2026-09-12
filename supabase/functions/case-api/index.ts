@@ -135,7 +135,10 @@ export default {
         // 0,0 是過去資料中的預設值，並非台灣地址；一律重新定位。
         if (!validCoordinate(latitude, longitude)) {
           const rawAddress = String(item.address || "").trim()
-          const geocodeQueries = rawAddress.includes("苗栗") ? [rawAddress] : [rawAddress, `苗栗縣三義鄉${rawAddress}`]
+          const scopedAddress = rawAddress.includes("苗栗") ? rawAddress : `苗栗縣三義鄉${rawAddress}`
+          // OSM 有時僅收錄道路、未收錄單一門牌；最後改查同一條道路，仍可供清運路線規劃使用。
+          const roadAddress = scopedAddress.replace(/(?:\d+[\d-]*號(?:之\d+)?(?:\d+樓)?).*$/, "").trim()
+          const geocodeQueries = [...new Set([rawAddress, scopedAddress, roadAddress].filter(Boolean))]
           let match: any = null
           for (const query of geocodeQueries) {
             const geocodeUrl = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=tw&q=${encodeURIComponent(query)}`
