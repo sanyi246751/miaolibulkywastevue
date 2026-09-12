@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from '../vueHooks.js'
 import { adminLogin, adminPost, toCasePayload } from '../api.js'
 import { getMinguoTime } from './utils/formatters.js'
 import SystemSettings from './components/SystemSettings.jsx'
+import SupabaseDashboard from './components/SupabaseDashboard.jsx'
+import PhoneApplication from './components/PhoneApplication.jsx'
 
 const statuses = ['全部', '待處理', '已排班', '清運完成', '已取消']
 const statusPageMeta = {
@@ -13,7 +15,7 @@ const statusPageMeta = {
 }
 const periods = ['', '上午8點至12點', '下午1點至5點']
 const categories = ['床墊', '櫃子', '桌子', '椅子', '電視', '冰箱', '其他']
-const pageTabs = ['案件清單與進度', '待處理', '已排班', '清運完成', '已取消', '系統設定']
+const pageTabs = ['案件清單與進度', '待處理', '已排班', '清運完成', '已取消', '電話申請', 'Dashboard', '系統設定']
 const tabStatus = { '案件清單與進度': '全部', '待處理': '待處理', '已排班': '已排班', '清運完成': '清運完成', '已取消': '已取消' }
 const dispatchDateKey = (value) => {
   const text = String(value || '').trim()
@@ -81,6 +83,7 @@ export default function AdminApp() {
   const [workerSettings, setWorkerSettings] = useState([])
   const [workerSelections, setWorkerSelections] = useState([''])
   const [scheduleEditing, setScheduleEditing] = useState(false)
+  const [pendingPhotos, setPendingPhotos] = useState([])
   const completionInput = useRef(null)
 
   const loadCases = async (selectStatus = '') => {
@@ -129,6 +132,26 @@ export default function AdminApp() {
     }
   }, [cases, selectedNo])
 
+  useEffect(() => {
+    const selected = cases.find((item) => item.case_no === selectedNo)
+    const photoPaths = Array.isArray(selected?.photo_paths) ? selected.photo_paths : []
+    let cancelled = false
+    setPendingPhotos([])
+    if (page !== '待處理' || !photoPaths.length) return () => { cancelled = true }
+
+    Promise.all(photoPaths.map(async (photo, index) => {
+      const fileId = typeof photo === 'string' ? photo : photo?.fileId || photo?.path
+      if (!fileId) return null
+      try {
+        const result = await adminPost('getImage', { fileId })
+        return { id: fileId, index, src: `data:image/jpeg;base64,${result.base64}` }
+      } catch {
+        return { id: fileId, index, error: true }
+      }
+    })).then((photos) => { if (!cancelled) setPendingPhotos(photos.filter(Boolean)) })
+    return () => { cancelled = true }
+  }, [cases, selectedNo, page])
+
   const visibleCases = useMemo(() => {
     const filtered = cases.filter((item) => {
     const statusMatch = filter === '全部' || item.status === filter
@@ -147,7 +170,7 @@ export default function AdminApp() {
 
   const pageTabCounts = useMemo(() => Object.fromEntries(pageTabs.map((tab) => [
     tab,
-    tab === '系統設定' ? null : tab === '案件清單與進度' ? cases.length : cases.filter((item) => item.status === tabStatus[tab]).length,
+    ['電話申請', 'Dashboard', '系統設定'].includes(tab) ? null : tab === '案件清單與進度' ? cases.length : cases.filter((item) => item.status === tabStatus[tab]).length,
   ])), [cases])
 
   const scheduledGroupStyles = useMemo(() => {
@@ -289,6 +312,13 @@ export default function AdminApp() {
     catch (error) { setMessage(error.message) } finally { setLoading(false) }
   }
 
+  const handlePhoneCreated = async (caseNo) => {
+    await loadCases()
+    setSelectedNo(caseNo)
+    selectPage('待處理')
+    setMessage(`電話申請已建立，案件編號：${caseNo}`)
+  }
+
   const restoreCaseStatus = async () => {
     if (!draft || draft.status !== '已取消' || !window.confirm(`確定恢復案件「${draft.case_no}」為待處理嗎？`)) return
     await save({ status: '待處理', dispatch_status: '待處理' }, '案件狀態已恢復為待處理')
@@ -334,7 +364,7 @@ export default function AdminApp() {
 
   return <div className="min-h-screen bg-slate-100 text-slate-900">
     <header className="sticky top-0 z-50 bg-emerald-950 px-3 py-2 text-white shadow-md sm:px-5"><div className="mx-auto flex min-h-16 flex-wrap items-center gap-3 xl:flex-nowrap"><h1 className="shrink-0 text-xl font-black">案件管理與排班</h1><nav className="order-3 flex w-full flex-wrap gap-2 xl:order-none xl:ml-3 xl:w-auto" aria-label="案件管理頁面">{pageTabs.map((tab) => <button key={tab} type="button" onClick={() => selectPage(tab)} className={'rounded-xl px-4 py-2.5 text-sm font-black transition-colors ' + (page === tab ? 'bg-emerald-700 text-white' : 'bg-slate-100 text-slate-600 hover:bg-emerald-50')}><span>{tab}</span><span className={'ml-2 inline-flex min-w-6 items-center justify-center rounded-full px-1.5 py-0.5 text-xs ' + (page === tab ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700')}>{pageTabCounts[tab]}</span></button>)}</nav><div className="ml-auto flex shrink-0 gap-2"><button onClick={loadCases} disabled={loading} aria-busy={loading} className={'rounded-xl px-4 py-2 text-sm font-bold transition-all disabled:cursor-wait ' + (loading ? 'bg-amber-400 text-emerald-950 shadow-lg shadow-amber-400/30' : 'bg-white/10 text-white hover:bg-white/20')}><span className="inline-flex items-center gap-2">{loading && <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-emerald-950/30 border-t-emerald-950" aria-hidden="true"/>}<span>{loading ? '整理中…' : '重新整理'}</span></span></button><button onClick={logout} className="rounded-xl bg-white/10 px-4 py-2 text-sm font-bold">登出</button></div></div></header>
-    {page === '系統設定' ? <SystemSettings vehicles={vehicleSettings} setVehicles={setVehicleSettings} workers={workerSettings} setWorkers={setWorkerSettings} loading={loading} message={message} onSave={saveSystemSettings}/> : <main className="mx-auto max-w-7xl p-4"><div className="grid gap-5 lg:grid-cols-[390px_1fr]">
+    {page === '系統設定' ? <SystemSettings vehicles={vehicleSettings} setVehicles={setVehicleSettings} workers={workerSettings} setWorkers={setWorkerSettings} loading={loading} message={message} onSave={saveSystemSettings}/> : page === '電話申請' ? <PhoneApplication createdAction={handlePhoneCreated}/> : page === 'Dashboard' ? <SupabaseDashboard cases={cases} loading={loading} reload={loadCases}/> : <main className="mx-auto max-w-7xl p-4"><div className="grid gap-5 lg:grid-cols-[390px_1fr]">
       <section className="rounded-2xl bg-white p-4 shadow-sm">
         <div><h2 className="text-lg font-black text-slate-900">{statusPageMeta[filter].title}</h2><p className="mt-1 text-xs font-bold text-slate-500">{statusPageMeta[filter].description}</p></div>
         <input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="案件編號、申請人、電話、地址或車號" className="mt-4 w-full rounded-xl border border-slate-300 px-3 py-2.5"/>
@@ -344,7 +374,8 @@ export default function AdminApp() {
       </section>
       <section className="rounded-2xl bg-white p-5 shadow-sm">{message && <div className="mb-4 rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-800">{message}</div>}{!visibleCases.length ? <p className="py-20 text-center font-bold text-slate-400">目前無案件</p> : !draft ? <p className="py-20 text-center text-slate-400">請選擇案件</p> : <div className="space-y-6">
         <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-sm font-bold text-emerald-700">{draft.report_source}</p><h2 className="text-2xl font-black">{draft.case_no}</h2><p className="mt-1 text-sm text-slate-500">{draft.applicant}｜{draft.phone}</p></div>{page === '案件清單與進度' && <span className="rounded-full bg-emerald-100 px-4 py-2 text-sm font-black text-emerald-800">{draft.status}</span>}</div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"><Info label="地址" value={draft.address}/><Info label="申報內容" value={`${draft.waste_type}，${draft.quantity} 件`}/><Info label="年度申請次數" value={`${draft.annual_count || 0} 次（${draft.free_eligible || '待確認'}）`}/><Info label="費用" value={`${Number(draft.fee_amount || 0).toLocaleString()} 元`}/><Info label="建立時間" value={getMinguoTime(draft.created_at)}/><Info label="最後更新" value={getMinguoTime(draft.updated_at)}/><Info label={draft.status === '已排班' ? '正式清運日期與時間' : '民眾希望日期（排班參考）'} value={getMinguoTime(draft.status === '已排班' ? (draft.scheduled_at || draft.requested_scheduled_at) : (draft.requested_scheduled_at || draft.scheduled_at))}/><Info label={draft.status === '已排班' ? '正式清運時段／第幾班' : '民眾希望時段（排班參考）'} value={`${draft.dispatch_period || '—'}／第 ${draft.dispatch_trip || 1} 班`}/><Info label="派車車號／清運人員" value={`${draft.vehicle_no || '—'}／${draft.worker_name || '—'}`}/>{draft.status === '已取消' && <Info label="撤案原因／備註" value={draft.dispatch_note}/>}</div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"><Info label="地址" value={draft.address}/><Info label="申報內容" value={`${draft.waste_type}，${draft.quantity} 件`}/><Info label="年度申請次數" value={`${draft.annual_count || 0} 次（${draft.free_eligible || '待確認'}）`}/><Info label="費用" value={`${Number(draft.fee_amount || 0).toLocaleString()} 元`}/>{page !== '待處理' && <><Info label="建立時間" value={getMinguoTime(draft.created_at)}/><Info label="最後更新" value={getMinguoTime(draft.updated_at)}/></>}<Info label={draft.status === '已排班' ? '正式清運日期與時間' : '民眾希望日期（排班參考）'} value={getMinguoTime(draft.status === '已排班' ? (draft.scheduled_at || draft.requested_scheduled_at) : (draft.requested_scheduled_at || draft.scheduled_at))}/><Info label={draft.status === '已排班' ? '正式清運時段／第幾班' : '民眾希望時段（排班參考）'} value={`${draft.dispatch_period || '—'}／第 ${draft.dispatch_trip || 1} 班`}/>{page !== '待處理' && <Info label="派車車號／清運人員" value={`${draft.vehicle_no || '—'}／${draft.worker_name || '—'}`}/>} {draft.status === '已取消' && <Info label="撤案原因／備註" value={draft.dispatch_note}/>}</div>
+        {page === '待處理' && <section className="rounded-2xl border border-sky-200 bg-sky-50 p-4"><h3 className="font-black text-sky-950">待清運照片</h3>{pendingPhotos.length ? <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">{pendingPhotos.map((photo) => <a key={photo.id} href={photo.src} target="_blank" rel="noreferrer" className="overflow-hidden rounded-xl border border-sky-200 bg-white">{photo.error ? <span className="flex h-32 items-center justify-center p-3 text-center text-xs font-bold text-rose-700">照片載入失敗</span> : <img src={photo.src} alt={`待清運照片 ${photo.index + 1}`} className="h-32 w-full object-cover"/>}<span className="block p-2 text-center text-xs font-bold text-sky-800">照片 {photo.index + 1}</span></a>)}</div> : <p className="mt-2 text-sm font-bold text-slate-500">尚未上傳待清運照片。</p>}</section>}
         {['案件清單與進度', '待處理'].includes(page) && <div className={'rounded-2xl border p-4 ' + (reviewApproved ? 'border-emerald-300 bg-emerald-50' : 'border-amber-300 bg-amber-50')}><div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-black">人工逐項覆核</h3><p className="text-xs text-slate-600">僅於待處理頁進行人工確認與計費。</p></div><div className={'rounded-xl px-3 py-2 text-sm font-black ' + (reviewApproved ? 'bg-emerald-600 text-white' : 'bg-amber-200 text-amber-900')}>{reviewApproved ? '✓ 人工已核可' : '⚠ 待人工核可'}</div></div>{reviewApproved && <div className="mt-3 grid gap-2 rounded-xl border border-emerald-200 bg-white/70 p-3 text-sm font-bold text-emerald-900 sm:grid-cols-3"><span>確認總件數：{draft.quantity} 件</span><span>計費件數：{draft.chargeable_quantity || 0} 件</span><span>應收費用：NT$ {Number(draft.fee_amount || 0).toLocaleString()}</span></div>}<div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">{categories.map((name) => <label key={name} className="text-xs font-bold text-slate-600">{name}<input disabled={reviewApproved} type="number" min="0" value={reviewCounts[name] || 0} onChange={(e) => setReviewCounts((old) => ({ ...old, [name]: e.target.value }))} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 disabled:bg-slate-100"/></label>)}</div><label className="mt-3 block text-xs font-bold text-slate-600">人工判斷依據（選填）<textarea disabled={reviewApproved} rows="2" value={draft.review_note || ''} onChange={(e) => setDraft({ ...draft, review_note: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 p-3 disabled:bg-slate-100"/></label>{page === '待處理' && (reviewApproved ? <button disabled={loading} onClick={() => setDraft({ ...draft, quantity_review_status: '待人工核可', chargeable_quantity: 0, fee_amount: 0 })} className="mt-3 rounded-xl border border-emerald-600 bg-white px-4 py-2.5 text-sm font-black text-emerald-700">修改人工確認</button> : <button disabled={loading} onClick={approveReview} className="mt-3 rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-black text-white">人工核可並試算費用</button>)}</div>}
         {['案件清單與進度', '待處理', '已排班'].includes(page) && <div className={'rounded-2xl border p-4 ' + (page === '待處理' ? 'border-amber-300 bg-amber-50' : 'border-slate-200')}><div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-black">{page === '已排班' ? '已排班案件管理（唯讀）' : '待處理案件排班'}</h3>{page === '待處理' && <p className="text-xs text-slate-600">車號與姓名一律以「派車設定」為準；請先在桌面端完成設定，再由此處選擇。</p>}</div>{page === '待處理' && <div className="rounded-xl bg-amber-200 px-3 py-2 text-sm font-black text-amber-900">{reviewApproved ? '待核可排班' : '⚠ 等待人工核可'}</div>}</div><div className="mt-3 grid gap-3 sm:grid-cols-2"><Field label="管理端排定清運日期與時間（民國）"><MinguoDateTimePicker disabled={dispatchFieldsDisabled} value={draft.scheduled_at} onCommit={(scheduled_at) => updateDispatchContext({ scheduled_at })}/></Field><Field label="管理端排定清運時段"><select disabled={dispatchFieldsDisabled} value={draft.dispatch_period || ''} onChange={(e) => updateDispatchContext({ dispatch_period: e.target.value })}>{periods.map((item) => <option key={item} value={item}>{item || '請選擇'}</option>)}</select></Field><Field label="派車車號"><select disabled={dispatchFieldsDisabled} value={draft.vehicle_no || ''} onChange={(e) => updateDispatchContext({ vehicle_no: e.target.value })}><option value="">請選擇車號</option>{dispatchOptions.vehicles.map((item) => <option key={item.vehicle_no} value={item.vehicle_no}>{item.vehicle_no}</option>)}</select></Field><Field label="清運人員"><div className="space-y-2">{workerSelections.map((selected, index) => <div key={index} className="flex gap-2"><select disabled={dispatchFieldsDisabled || isMergingDispatch} value={selected} onChange={(e) => { const next = [...workerSelections]; next[index] = e.target.value; setDispatchWorkers(next) }}><option value="">請選擇清運人員</option>{dispatchOptions.workers.filter((item) => item === selected || !workerSelections.includes(item)).map((item) => <option key={item} value={item}>{item}</option>)}</select>{workerSelections.length > 1 && <button type="button" disabled={dispatchFieldsDisabled || isMergingDispatch} onClick={() => setDispatchWorkers(workerSelections.filter((_, memberIndex) => memberIndex !== index))} className="rounded-lg border border-rose-300 px-3 text-rose-700">－</button>}</div>)}<button type="button" disabled={dispatchFieldsDisabled || isMergingDispatch} onClick={() => setWorkerSelections([...workerSelections, ''])} className="rounded-lg border border-emerald-700 px-3 py-2 text-sm font-black text-emerald-800">＋ 新增清運人員</button></div></Field><Field label="合併／新增班次"><select disabled={dispatchFieldsDisabled} value={dispatchTripChoices.some((choice) => choice.trip === Number(draft.dispatch_trip || 1)) ? Number(draft.dispatch_trip || 1) : dispatchTripChoices[dispatchTripChoices.length - 1].trip} onChange={(e) => selectDispatchTrip(e.target.value)}>{dispatchTripChoices.map((choice) => <option key={choice.trip} value={choice.trip}>{choice.label}</option>)}</select></Field><Field label="派車備註"><input disabled={dispatchFieldsDisabled} value={draft.dispatch_note || ''} onChange={(e) => setDraft({ ...draft, dispatch_note: e.target.value })}/></Field></div></div>}
         <div className="flex flex-wrap gap-3">{page === '案件清單與進度' && <><button type="button" onClick={() => { window.location.href = './index.html' }} className="rounded-xl border border-emerald-700 px-5 py-3 font-black text-emerald-800">新增案件</button><button disabled={loading || draft.status !== '已取消'} onClick={restoreCaseStatus} className="rounded-xl bg-emerald-700 px-5 py-3 font-black text-white disabled:opacity-40">恢復案件狀態</button><button disabled={loading} onClick={deleteCase} className="rounded-xl border border-rose-300 px-5 py-3 font-black text-rose-700">刪除案件</button></>}{page === '待處理' && <><button disabled={loading || !reviewApproved} onClick={schedule} className="rounded-xl bg-emerald-700 px-5 py-3 font-black text-white disabled:cursor-not-allowed disabled:bg-slate-300">{reviewApproved ? '核可排班' : '請先完成人工核可'}</button><button disabled={loading} onClick={withdrawCase} className="rounded-xl bg-rose-600 px-5 py-3 font-black text-white">撤案</button><button disabled={loading} onClick={() => save()} className="ml-auto rounded-xl border border-emerald-700 px-5 py-3 font-black text-emerald-800">儲存調度變更</button></>}{page === '已排班' && <><button disabled={loading} onClick={() => completionInput.current?.click()} className="rounded-xl bg-sky-700 px-5 py-3 font-black text-white">📸 拍照結案</button><button disabled={loading} onClick={() => save({ status: '待處理', dispatch_status: '待處理' }, '已取消排班，案件回到待處理')} className="rounded-xl bg-amber-600 px-5 py-3 font-black text-white">取消排班</button><button disabled={loading || scheduleEditing} onClick={() => setScheduleEditing(true)} className="bg-emerald-700 px-5 py-3 font-black text-white disabled:opacity-40">修改</button>{scheduleEditing && <button disabled={loading} onClick={saveScheduledChanges} className="bg-sky-700 px-5 py-3 font-black text-white">儲存排班變更</button>}<button disabled={loading} onClick={withdrawCase} className="rounded-xl bg-rose-600 px-5 py-3 font-black text-white">撤案</button></>}{page === '清運完成' && <button type="button" onClick={() => window.print()} className="rounded-xl bg-slate-700 px-5 py-3 font-black text-white">預覽列印</button>}{page === '已取消' && <><button disabled={loading} onClick={restoreCaseStatus} className="rounded-xl bg-emerald-700 px-5 py-3 font-black text-white">恢復案件狀態</button><button disabled={loading} onClick={deleteCase} className="rounded-xl border border-rose-300 px-5 py-3 font-black text-rose-700">刪除案件</button></>}<input ref={completionInput} type="file" accept="image/*" multiple className="hidden" onChange={completeWithPhoto}/></div>

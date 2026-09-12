@@ -143,15 +143,15 @@ import { GAS_URL, createPublicCase, queryCase } from './api.js';
         try {
           const totalQuantity = selectedItems.reduce((total, item) => total + Number(item.quantity || 0), 0);
           const wasteType = selectedItems.map((item) => `${item.name}×${item.quantity}`).join('、');
-          const firstPhoto = photos[0] ? {
-            name: photos[0].name,
-            mimeType: String(photos[0].url).slice(5, String(photos[0].url).indexOf(';')) || 'image/jpeg',
-            base64: String(photos[0].url).split(',')[1]
-          } : null;
+          const pendingPhotos = photos.map((photo) => ({
+            name: photo.name,
+            mimeType: String(photo.url).slice(5, String(photo.url).indexOf(';')) || 'image/jpeg',
+            base64: String(photo.url).split(',')[1]
+          }));
           const bookingId = await createPublicCase({
             applicant: applicantName.trim(), phone: formatTaiwanPhone(phone),
             addressDetail: detailAddress.trim(), wasteType, quantity: totalQuantity,
-            preferredDate, preferredTimeSlot, locationNote, email: email.trim(), photo: firstPhoto
+            preferredDate, preferredTimeSlot, locationNote, email: email.trim(), photos: pendingPhotos
           });
           const newBooking = {
             id: bookingId, applicantName, phone: formatTaiwanPhone(phone), email,

@@ -23,7 +23,25 @@ export default {
       const applicant = String(body.applicant || "").trim(), phone = String(body.phone || "").trim(), address = String(body.address || body.addressDetail || "").trim(), wasteType = String(body.wasteType || "").trim()
       if (!applicant || !phone || !address || !wasteType) return error("請完整填寫申請資料")
       const no = caseNo()
-      const { error: dbError } = await ctx.supabaseAdmin.from("cases").insert({ case_no: no, applicant, phone, address, waste_type: wasteType, quantity: Math.max(1, Number(body.quantity || 1)), status: "待處理", requested_scheduled_at: body.preferredDate ? `${body.preferredDate}T00:00:00+08:00` : null, dispatch_period: String(body.preferredTimeSlot || ""), dispatch_note: String(body.locationNote || ""), email: String(body.email || "") || null })
+      // 民眾照片經 Edge Function 寫入私有 Storage，只在案件資料保存路徑，不公開原始檔。
+      const inputs = Array.isArray(body.photos) ? body.photos : body.photo ? [body.photo] : []
+      if (inputs.length > 8) return error("待清運照片最多上傳 8 張")
+      const photoPaths: string[] = []
+      for (const [index, input] of inputs.entries()) {
+        const photo = input as Record<string, unknown>
+        const mimeType = String(photo.mimeType || "image/jpeg")
+        const base64 = String(photo.base64 || "")
+        if (!mimeType.startsWith("image/") || !base64) return error("待清運照片格式不正確")
+        let bytes: Uint8Array
+        try { bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0)) } catch { return error("待清運照片內容不正確") }
+        if (!bytes.length || bytes.length > 8 * 1024 * 1024) return error("每張待清運照片須介於 1 B 至 8 MB")
+        const name = String(photo.name || `photo-${index + 1}.jpg`).replace(/[^\w.-]/g, "_")
+        const path = `public/${no}-${index + 1}-${name}`
+        const { error: uploadError } = await ctx.supabaseAdmin.storage.from("case-photos").upload(path, bytes, { contentType: mimeType, upsert: false })
+        if (uploadError) return error(`待清運照片上傳失敗：${uploadError.message}`, 500)
+        photoPaths.push(path)
+      }
+      const { error: dbError } = await ctx.supabaseAdmin.from("cases").insert({ case_no: no, applicant, phone, address, waste_type: wasteType, quantity: Math.max(1, Number(body.quantity || 1)), status: "待處理", requested_scheduled_at: body.preferredDate ? `${body.preferredDate}T00:00:00+08:00` : null, dispatch_period: String(body.preferredTimeSlot || ""), dispatch_note: String(body.locationNote || ""), email: String(body.email || "") || null, photo_paths: photoPaths })
       return dbError ? error(dbError.message, 500) : reply({ ok: true, caseNo: no })
     }
     if (action === "query") {
@@ -43,6 +61,13 @@ export default {
     const bearer = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") || ""
     const { data: userResult, error: authError } = await ctx.supabaseAdmin.auth.getUser(bearer)
     if (authError || userResult.user?.email?.toLowerCase() !== "sanyi246751@gmail.com") return error("管理員權限不足", 403)
+    if (action === "createPhoneCase") {
+      const applicant = String(body.applicant || "").trim(), phone = String(body.phone || "").trim(), address = String(body.address || "").trim(), wasteType = String(body.wasteType || "").trim()
+      if (!applicant || !phone || !address || !wasteType) return error("請完整填寫申請人、電話、地址與清運品項")
+      const no = caseNo()
+      const { error: dbError } = await ctx.supabaseAdmin.from("cases").insert({ case_no: no, applicant, phone, email: String(body.email || "") || null, address, waste_type: wasteType, quantity: Math.max(1, Number(body.quantity || 1)), status: "待處理", requested_scheduled_at: body.preferredDate ? `${body.preferredDate}T00:00:00+08:00` : null, dispatch_period: String(body.preferredTimeSlot || ""), dispatch_note: String(body.note || ""), photo_paths: Array.isArray(body.photoPaths) ? body.photoPaths : [], report_source: "電話申請" })
+      return dbError ? error(dbError.message, 500) : reply({ ok: true, caseNo: no })
+    }
     if (action === "upload") {
       const name = String(body.fileName || "photo.jpg").replace(/[^\w.-]/g, "_")
       const bytes = Uint8Array.from(atob(String(body.base64 || "")), (c) => c.charCodeAt(0))
