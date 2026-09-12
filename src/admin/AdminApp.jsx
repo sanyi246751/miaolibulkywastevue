@@ -4,6 +4,7 @@ import { getMinguoTime } from './utils/formatters.js'
 import SystemSettings from './components/SystemSettings.jsx'
 import SupabaseDashboard from './components/SupabaseDashboard.jsx'
 import PhoneApplication from './components/PhoneApplication.jsx'
+import DatabaseViewer from './components/DatabaseViewer.jsx'
 
 const statuses = ['全部', '待處理', '已排班', '清運完成', '已取消']
 const statusPageMeta = {
@@ -15,7 +16,7 @@ const statusPageMeta = {
 }
 const periods = ['', '上午8點至12點', '下午1點至5點']
 const categories = ['床墊', '櫃子', '桌子', '椅子', '電視', '冰箱', '其他']
-const pageTabs = ['案件清單與進度', '待處理', '已排班', '清運完成', '已取消', '電話申請', 'Dashboard', '系統設定']
+const pageTabs = ['案件清單與進度', '待處理', '已排班', '清運完成', '已取消', '電話申請', 'Dashboard', '資料庫檢視', '系統設定']
 const tabStatus = { '案件清單與進度': '全部', '待處理': '待處理', '已排班': '已排班', '清運完成': '清運完成', '已取消': '已取消' }
 const dispatchDateKey = (value) => {
   const text = String(value || '').trim()
@@ -178,7 +179,7 @@ export default function AdminApp() {
 
   const pageTabCounts = useMemo(() => Object.fromEntries(pageTabs.map((tab) => [
     tab,
-    ['電話申請', 'Dashboard', '系統設定'].includes(tab) ? null : tab === '案件清單與進度' ? cases.length : cases.filter((item) => item.status === tabStatus[tab]).length,
+    ['電話申請', 'Dashboard', '資料庫檢視', '系統設定'].includes(tab) ? null : tab === '案件清單與進度' ? cases.length : cases.filter((item) => item.status === tabStatus[tab]).length,
   ])), [cases])
 
   const scheduledGroupStyles = useMemo(() => {
@@ -380,7 +381,7 @@ export default function AdminApp() {
 
   return <div className="min-h-screen bg-slate-100 text-slate-900">
     <header className="sticky top-0 z-50 bg-emerald-950 px-3 py-2 text-white shadow-md sm:px-5"><div className="mx-auto flex min-h-16 flex-wrap items-center gap-3 xl:flex-nowrap"><h1 className="shrink-0 text-xl font-black">案件管理與排班</h1><nav className="order-3 flex w-full flex-wrap gap-2 xl:order-none xl:ml-3 xl:w-auto" aria-label="案件管理頁面">{pageTabs.map((tab) => <button key={tab} type="button" onClick={() => selectPage(tab)} className={'rounded-xl px-4 py-2.5 text-sm font-black transition-colors ' + (page === tab ? 'bg-emerald-700 text-white' : 'bg-slate-100 text-slate-600 hover:bg-emerald-50')}><span>{tab}</span><span className={'ml-2 inline-flex min-w-6 items-center justify-center rounded-full px-1.5 py-0.5 text-xs ' + (page === tab ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700')}>{pageTabCounts[tab]}</span></button>)}</nav><div className="ml-auto flex shrink-0 gap-2"><button onClick={loadCases} disabled={loading} aria-busy={loading} className={'rounded-xl px-4 py-2 text-sm font-bold transition-all disabled:cursor-wait ' + (loading ? 'bg-amber-400 text-emerald-950 shadow-lg shadow-amber-400/30' : 'bg-white/10 text-white hover:bg-white/20')}><span className="inline-flex items-center gap-2">{loading && <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-emerald-950/30 border-t-emerald-950" aria-hidden="true"/>}<span>{loading ? '整理中…' : '重新整理'}</span></span></button><button onClick={logout} className="rounded-xl bg-white/10 px-4 py-2 text-sm font-bold">登出</button></div></div></header>
-    {page === '系統設定' ? <SystemSettings vehicles={vehicleSettings} setVehicles={setVehicleSettings} workers={workerSettings} setWorkers={setWorkerSettings} routeOrigin={routeOriginSettings} setRouteOrigin={setRouteOriginSettings} loading={loading} message={message} onSave={saveSystemSettings}/> : page === '電話申請' ? <PhoneApplication createdAction={handlePhoneCreated}/> : page === 'Dashboard' ? <SupabaseDashboard cases={cases} loading={loading} reload={loadCases}/> : <main className="mx-auto max-w-7xl p-4"><div className="grid gap-5 lg:grid-cols-[390px_1fr]">
+    {page === '系統設定' ? <SystemSettings vehicles={vehicleSettings} setVehicles={setVehicleSettings} workers={workerSettings} setWorkers={setWorkerSettings} routeOrigin={routeOriginSettings} setRouteOrigin={setRouteOriginSettings} loading={loading} message={message} onSave={saveSystemSettings}/> : page === '資料庫檢視' ? <DatabaseViewer cases={cases} getMinguoTime={getMinguoTime}/> : page === '電話申請' ? <PhoneApplication createdAction={handlePhoneCreated}/> : page === 'Dashboard' ? <SupabaseDashboard cases={cases} loading={loading} reload={loadCases}/> : <main className="mx-auto max-w-7xl p-4"><div className="grid gap-5 lg:grid-cols-[390px_1fr]">
       <section className="rounded-2xl bg-white p-4 shadow-sm">
         <div><h2 className="text-lg font-black text-slate-900">{statusPageMeta[filter].title}</h2><p className="mt-1 text-xs font-bold text-slate-500">{statusPageMeta[filter].description}</p></div>
         <input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="案件編號、申請人、電話、地址或車號" className="mt-4 w-full rounded-xl border border-slate-300 px-3 py-2.5"/>
