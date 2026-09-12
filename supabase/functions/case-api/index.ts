@@ -104,19 +104,23 @@ export default {
     }
     if (action === "list") { const { data, error: dbError } = await ctx.supabaseAdmin.from("cases").select("*").order("created_at", { ascending: false }); return dbError ? error(dbError.message, 500) : reply({ ok: true, cases: data || [] }) }
     if (action === "dispatchOptions") {
-      const [{ data: vehicles, error: vehicleError }, { data: workers, error: workerError }] = await Promise.all([ctx.supabaseAdmin.from("vehicles").select("vehicle_no,fuel_efficiency,co2_per_liter").eq("active", true).order("vehicle_no"), ctx.supabaseAdmin.from("workers").select("name").eq("active", true).order("name")])
-      return vehicleError || workerError ? error(vehicleError?.message || workerError?.message || "讀取派車設定失敗", 500) : reply({ ok: true, dispatch: { vehicles: vehicles || [], workers: (workers || []).map((item) => item.name) } })
+      const [{ data: vehicles, error: vehicleError }, { data: workers, error: workerError }, { data: settings, error: settingsError }] = await Promise.all([ctx.supabaseAdmin.from("vehicles").select("vehicle_no,fuel_efficiency,co2_per_liter").eq("active", true).order("vehicle_no"), ctx.supabaseAdmin.from("workers").select("name").eq("active", true).order("name"), ctx.supabaseAdmin.from("system_settings").select("setting_key,setting_value").eq("setting_key", "route_origin")])
+      return vehicleError || workerError || settingsError ? error(vehicleError?.message || workerError?.message || settingsError?.message || "讀取派車設定失敗", 500) : reply({ ok: true, dispatch: { vehicles: vehicles || [], workers: (workers || []).map((item) => item.name), route_origin: settings?.[0]?.setting_value || "24.380891,120.734372" } })
     }
     if (action === "updateDispatchOptions") {
       const vehicles = Array.isArray(body.vehicles) ? body.vehicles : []
       const workers = Array.isArray(body.workers) ? body.workers : []
+      const routeOrigin = String(body.routeOrigin || "24.380891,120.734372").trim()
+      const originValues = routeOrigin.split(",").map(Number)
+      if (originValues.length !== 2 || originValues.some((value) => !Number.isFinite(value)) || Math.abs(originValues[0]) > 90 || Math.abs(originValues[1]) > 180) return error("出發點請填寫正確的緯度,經度")
       const vehicleRows = vehicles.map((item: any) => ({ vehicle_no: String(item.vehicle_no || item).trim(), fuel_efficiency: Number(item.fuel_efficiency || 5), co2_per_liter: Number(item.co2_per_liter || 2.69), active: true })).filter((item) => item.vehicle_no)
       const workerRows = workers.map((name) => ({ name: String(name).trim(), active: true })).filter((item) => item.name)
       const { error: disableVehicleError } = await ctx.supabaseAdmin.from("vehicles").update({ active: false }).eq("active", true)
       const { error: disableWorkerError } = await ctx.supabaseAdmin.from("workers").update({ active: false }).eq("active", true)
       const vehicleResult = vehicleRows.length ? await ctx.supabaseAdmin.from("vehicles").upsert(vehicleRows, { onConflict: "vehicle_no" }) : { error: null }
       const workerResult = workerRows.length ? await ctx.supabaseAdmin.from("workers").upsert(workerRows, { onConflict: "name" }) : { error: null }
-      const saveError = disableVehicleError || disableWorkerError || vehicleResult.error || workerResult.error
+      const originResult = await ctx.supabaseAdmin.from("system_settings").upsert({ setting_key: "route_origin", setting_value: routeOrigin, updated_at: new Date().toISOString() }, { onConflict: "setting_key" })
+      const saveError = disableVehicleError || disableWorkerError || vehicleResult.error || workerResult.error || originResult.error
       return saveError ? error(saveError.message || "儲存派車設定失敗", 500) : reply({ ok: true })
     }
     if (action === "calculateRoute") {
