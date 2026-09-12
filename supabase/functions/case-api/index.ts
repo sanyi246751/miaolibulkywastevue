@@ -132,11 +132,18 @@ export default {
         let latitude = Number(item.latitude), longitude = Number(item.longitude)
         // 0,0 是過去資料中的預設值，並非台灣地址；一律重新定位。
         if (!validCoordinate(latitude, longitude)) {
-          const geocodeUrl = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=tw&q=${encodeURIComponent(item.address)}`
-          const geocodeResponse = await fetch(geocodeUrl, { headers: { "User-Agent": "MiaoliBulkyWaste/1.0 (contact: sanyi246751@gmail.com)", "Accept-Language": "zh-TW" } })
-          const matches = await geocodeResponse.json().catch(() => [])
-          if (!geocodeResponse.ok || !Array.isArray(matches) || !matches[0]) return error(`找不到地址座標：${item.address}`, 422)
-          latitude = Number(matches[0].lat); longitude = Number(matches[0].lon)
+          const rawAddress = String(item.address || "").trim()
+          const geocodeQueries = rawAddress.includes("苗栗") ? [rawAddress] : [rawAddress, `苗栗縣三義鄉${rawAddress}`]
+          let match: any = null
+          for (const query of geocodeQueries) {
+            const geocodeUrl = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=tw&q=${encodeURIComponent(query)}`
+            const geocodeResponse = await fetch(geocodeUrl, { headers: { "User-Agent": "MiaoliBulkyWaste/1.0 (contact: sanyi246751@gmail.com)", "Accept-Language": "zh-TW" } })
+            const matches = await geocodeResponse.json().catch(() => [])
+            if (geocodeResponse.ok && Array.isArray(matches) && matches[0]) { match = matches[0]; break }
+            await new Promise((resolve) => setTimeout(resolve, 1100))
+          }
+          if (!match) return error(`找不到地址座標：${rawAddress}。請於案件資料補上完整的縣市與鄉鎮地址。`, 422)
+          latitude = Number(match.lat); longitude = Number(match.lon)
           if (!validCoordinate(latitude, longitude)) return error(`地址座標格式錯誤：${item.address}`, 422)
           const { error: saveCoordinateError } = await ctx.supabaseAdmin.from("cases").update({ latitude, longitude }).eq("case_no", item.case_no)
           if (saveCoordinateError) return error(saveCoordinateError.message, 500)
