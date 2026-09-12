@@ -161,9 +161,13 @@ export default {
         points.push({ case_no: item.case_no, latitude, longitude })
       }
       const distance = (a: [number, number], b: [number, number]) => { const r = Math.PI / 180, dLat = (b[0] - a[0]) * r, dLon = (b[1] - a[1]) * r, h = Math.sin(dLat / 2) ** 2 + Math.cos(a[0] * r) * Math.cos(b[0] * r) * Math.sin(dLon / 2) ** 2; return 6371 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h)) }
+      const requestedOrder = new Map(caseNos.map((caseNo, index) => [caseNo, index]))
       const remaining = [...points], ordered: typeof points = []
-      let current: [number, number] = [originLat, originLon]
-      while (remaining.length) { remaining.sort((first, second) => distance(current, [first.latitude, first.longitude]) - distance(current, [second.latitude, second.longitude])); const next = remaining.shift()!; ordered.push(next); current = [next.latitude, next.longitude] }
+      if (body.preserveOrder) ordered.push(...remaining.sort((first, second) => (requestedOrder.get(first.case_no) || 0) - (requestedOrder.get(second.case_no) || 0)))
+      else {
+        let current: [number, number] = [originLat, originLon]
+        while (remaining.length) { remaining.sort((first, second) => distance(current, [first.latitude, first.longitude]) - distance(current, [second.latitude, second.longitude])); const next = remaining.shift()!; ordered.push(next); current = [next.latitude, next.longitude] }
+      }
       const coordinates = [[originLon, originLat], ...ordered.map((item) => [item.longitude, item.latitude])].map((point) => point.join(",")).join(";")
       const radiuses = Array(ordered.length + 1).fill("20000").join(";")
       const routeUrls = [
