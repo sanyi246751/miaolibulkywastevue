@@ -117,6 +117,43 @@ export default {
       const saveError = disableVehicleError || disableWorkerError || vehicleResult.error || workerResult.error
       return saveError ? error(saveError.message || "儲存派車設定失敗", 500) : reply({ ok: true })
     }
+    if (action === "calculateRoute") {
+      const caseNos = Array.isArray(body.caseNos) ? body.caseNos.map(String).filter(Boolean).slice(0, 20) : []
+      if (!caseNos.length) return error("請提供至少一筆已排班案件")
+      const originValues = String(body.origin || "24.380891,120.734372").split(",").map(Number)
+      if (originValues.length !== 2 || originValues.some(Number.isNaN)) return error("出發點座標格式不正確")
+      const [originLat, originLon] = originValues
+      const { data: cases, error: casesError } = await ctx.supabaseAdmin.from("cases").select("case_no,address,latitude,longitude").in("case_no", caseNos)
+      if (casesError) return error(casesError.message, 500)
+      const points: Array<{ case_no: string; latitude: number; longitude: number }> = []
+      for (const item of cases || []) {
+        let latitude = Number(item.latitude), longitude = Number(item.longitude)
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+          const geocodeUrl = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=tw&q=${encodeURIComponent(item.address)}`
+          const geocodeResponse = await fetch(geocodeUrl, { headers: { "User-Agent": "MiaoliBulkyWaste/1.0 (contact: sanyi246751@gmail.com)", "Accept-Language": "zh-TW" } })
+          const matches = await geocodeResponse.json().catch(() => [])
+          if (!geocodeResponse.ok || !Array.isArray(matches) || !matches[0]) return error(`找不到地址座標：${item.address}`, 422)
+          latitude = Number(matches[0].lat); longitude = Number(matches[0].lon)
+          if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return error(`地址座標格式錯誤：${item.address}`, 422)
+          const { error: saveCoordinateError } = await ctx.supabaseAdmin.from("cases").update({ latitude, longitude }).eq("case_no", item.case_no)
+          if (saveCoordinateError) return error(saveCoordinateError.message, 500)
+          await new Promise((resolve) => setTimeout(resolve, 1100))
+        }
+        points.push({ case_no: item.case_no, latitude, longitude })
+      }
+      const distance = (a: [number, number], b: [number, number]) => { const r = Math.PI / 180, dLat = (b[0] - a[0]) * r, dLon = (b[1] - a[1]) * r, h = Math.sin(dLat / 2) ** 2 + Math.cos(a[0] * r) * Math.cos(b[0] * r) * Math.sin(dLon / 2) ** 2; return 6371 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h)) }
+      const remaining = [...points], ordered: typeof points = []
+      let current: [number, number] = [originLat, originLon]
+      while (remaining.length) { remaining.sort((first, second) => distance(current, [first.latitude, first.longitude]) - distance(current, [second.latitude, second.longitude])); const next = remaining.shift()!; ordered.push(next); current = [next.latitude, next.longitude] }
+      const coordinates = [[originLon, originLat], ...ordered.map((item) => [item.longitude, item.latitude])].map((point) => point.join(",")).join(";")
+      const routeResponse = await fetch(`https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=false&steps=false`, { headers: { "User-Agent": "MiaoliBulkyWaste/1.0" } })
+      const routeData = await routeResponse.json().catch(() => ({}))
+      const route = routeData?.routes?.[0]
+      if (!routeResponse.ok || !route) return error("OSRM 無法取得道路路線", 502)
+      const distanceKm = Number(route.distance || 0) / 1000, durationMinutes = Math.round(Number(route.duration || 0) / 60)
+      const fuelEfficiency = Math.max(0.1, Number(body.fuelEfficiency || 5)), co2PerLiter = Math.max(0, Number(body.co2PerLiter || 2.69))
+      return reply({ ok: true, ordered, distanceKm, durationMinutes, carbonKg: distanceKm / fuelEfficiency * co2PerLiter })
+    }
     if (action === "upsert") {
       const item = body.case as Record<string, unknown>
       if (!item?.case_no) return error("案件編號不可空白")
