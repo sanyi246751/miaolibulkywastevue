@@ -13,21 +13,6 @@ export default function BookingView(props) {
             {activeTab === 'booking' && (
               <form onSubmit={handleFormSubmit} className="max-w-4xl mx-auto space-y-5 sm:space-y-8">
                 
-                {/* Hero Banner */}
-                <div className="booking-hero relative rounded-2xl p-5 sm:rounded-[2rem] sm:p-9 border border-emerald-200 shadow-xl overflow-hidden">
-                  <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-                    <div>
-                      <span className="inline-block px-3 py-1 rounded-full text-xs font-bold bg-white/80 text-emerald-800 border border-emerald-200 mb-3 shadow-sm">
-                        ✨ 環保免費服務 ‧ Google Sheets 雲端連線
-                      </span>
-                      <h2 className="text-2xl sm:text-4xl font-black text-emerald-950">大型廢棄傢俱清運預約申請</h2>
-                      <p className="text-xs sm:text-sm text-slate-600 mt-3 max-w-xl leading-relaxed">
-                        提供床墊、櫃子、桌子、椅子、電視冰箱等家電清運。請填寫下方資料與上傳照片，送出後即獲取標籤與 QR Code。
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
                 {/* Validation Warnings */}
                 {Object.keys(errors).length > 0 && (
                   <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/40 text-rose-300 text-xs space-y-1">
@@ -142,50 +127,51 @@ export default function BookingView(props) {
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
                     {CATEGORIES.map((cat) => {
                       const qty = getItemQty(cat.id);
                       const isSelected = qty > 0;
                       return (
                         <div
                           key={cat.id}
-                          className={`p-4 rounded-xl border transition-all ${
+                          className={`rounded-2xl border p-6 transition-all ${
                             isSelected
-                              ? 'bg-emerald-950 border-emerald-300 shadow-md ring-2 ring-emerald-400'
-                              : 'bg-slate-900 border-slate-600 hover:border-slate-400'
+                              ? 'border-emerald-500 bg-emerald-50 shadow-md ring-2 ring-emerald-300'
+                              : 'border-slate-200 bg-white hover:border-emerald-300 hover:shadow-sm'
                           }`}
                         >
-                          <div className="flex items-center space-x-3">
-                            <span className={`text-3xl p-2 rounded-xl border ${isSelected ? 'bg-white border-white/70' : 'bg-slate-900 border-slate-700'}`}>{cat.icon}</span>
+                          <div className="flex items-start gap-4">
+                            <span className="mt-0.5 text-3xl">{cat.icon}</span>
                             <div>
-                              <h4 className={`font-black ${isSelected ? '!text-white' : 'text-slate-100'}`}>{cat.name}</h4>
-                              <p className={`text-xs ${isSelected ? '!text-emerald-100' : 'text-slate-400'}`}>{cat.desc}</p>
+                              <h4 className="text-xl font-black text-slate-950">{cat.name}</h4>
+                              <p className="mt-1 text-base leading-snug text-slate-500">{cat.desc}</p>
                             </div>
                           </div>
-                          <div className={`mt-3 rounded-lg px-3 py-1.5 text-center text-xs font-black ${isSelected ? 'bg-emerald-400 text-emerald-950' : 'bg-slate-700 text-slate-200'}`}>{isSelected ? '✓ 已選取' : '未選取'}</div>
 
-                          <div className="mt-4 pt-3 border-t border-slate-700/50 flex items-center justify-between">
-                            <span className="text-xs text-slate-400">選擇數量:</span>
-                            <div className="flex items-center space-x-2">
+                          <div className="mt-4 flex items-center justify-end gap-3">
+                            <span className="text-base font-bold text-slate-700">選擇數量：</span>
+                            <div className="flex items-center gap-3">
                               <button
                                 type="button"
                                 onClick={() => handleItemQtyChange(cat.id, -1)}
                                 disabled={qty === 0}
-                                className="w-7 h-7 rounded bg-slate-700 text-slate-200 disabled:opacity-30 font-bold"
+                                aria-label={`減少${cat.name}數量`}
+                                className="h-8 w-10 rounded-md bg-slate-200 text-base font-bold text-slate-900 transition hover:bg-slate-300 disabled:cursor-not-allowed disabled:opacity-50"
                               >
-                                -
+                                −
                               </button>
-                              <span className="w-6 text-center font-extrabold text-emerald-400">{qty}</span>
+                              <span className="w-4 text-center text-base font-black text-slate-950">{qty}</span>
                               <button
                                 type="button"
                                 onClick={() => handleItemQtyChange(cat.id, 1)}
-                                className="w-7 h-7 rounded bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500 hover:text-slate-950 font-bold"
+                                aria-label={`增加${cat.name}數量`}
+                                className="h-8 w-10 rounded-md bg-emerald-700 text-lg font-light text-white transition hover:bg-emerald-800"
                               >
-                                +
+                                ＋
                               </button>
                             </div>
                           </div>
-                          {isSelected && cat.id === 'other' && <input type="text" value={getItemNote(cat.id)} onChange={(e) => handleItemNoteChange(cat.id, e.target.value)} placeholder="請填寫其他清運項目內容" className="mt-3 w-full rounded-lg border border-emerald-500 bg-slate-950 px-3 py-2 text-xs text-slate-100 placeholder-slate-500" />}
+                          {isSelected && cat.id === 'other' && <input type="text" value={getItemNote(cat.id)} onChange={(e) => handleItemNoteChange(cat.id, e.target.value)} placeholder="請填寫其他清運項目內容" className="mt-4 w-full rounded-lg border border-emerald-400 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400" />}
                         </div>
                       );
                     })}

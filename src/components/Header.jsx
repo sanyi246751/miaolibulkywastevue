@@ -10,10 +10,7 @@ export default function Header(props) {
                 <button className="group flex min-w-0 items-center gap-3 text-left" onClick={() => setActiveTab('booking')} aria-label="回到線上預約首頁">
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-700 text-lg text-white shadow-lg transition-transform group-hover:-translate-y-0.5 sm:h-12 sm:w-12 sm:rounded-2xl sm:text-xl">🚚</span>
                   <span className="min-w-0">
-                    <span className="flex items-center gap-2">
-                      <span className="truncate text-base font-black tracking-tight text-emerald-950 sm:text-xl">大型傢俱清運</span>
-                      <span className="hidden rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-700 xl:inline">Google 雲端版</span>
-                    </span>
+                    <span className="truncate text-base font-black tracking-tight text-emerald-950 sm:text-xl">大型傢俱清運</span>
                     <span className="mt-0.5 hidden text-xs font-medium text-slate-400 sm:block">民眾線上申請、進度查詢與清運管理</span>
                   </span>
                 </button>
