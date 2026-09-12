@@ -146,9 +146,10 @@ export default {
       let current: [number, number] = [originLat, originLon]
       while (remaining.length) { remaining.sort((first, second) => distance(current, [first.latitude, first.longitude]) - distance(current, [second.latitude, second.longitude])); const next = remaining.shift()!; ordered.push(next); current = [next.latitude, next.longitude] }
       const coordinates = [[originLon, originLat], ...ordered.map((item) => [item.longitude, item.latitude])].map((point) => point.join(",")).join(";")
+      const radiuses = Array(ordered.length + 1).fill("20000").join(";")
       const routeUrls = [
-        `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=false&steps=false`,
-        `https://routing.openstreetmap.de/routed-car/route/v1/driving/${coordinates}?overview=false&steps=false`,
+        `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=false&steps=false&radiuses=${radiuses}`,
+        `https://routing.openstreetmap.de/routed-car/route/v1/driving/${coordinates}?overview=false&steps=false&radiuses=${radiuses}`,
       ]
       let route: any = null, routeError = ""
       for (const routeUrl of routeUrls) {
@@ -156,13 +157,13 @@ export default {
           const routeResponse = await fetch(routeUrl, { headers: { "User-Agent": "MiaoliBulkyWaste/1.0 (contact: sanyi246751@gmail.com)" } })
           const routeData = await routeResponse.json().catch(() => ({}))
           if (routeResponse.ok && routeData?.routes?.[0]) { route = routeData.routes[0]; break }
-          routeError = `HTTP ${routeResponse.status}`
+          routeError = `${routeData?.code || `HTTP ${routeResponse.status}`}${routeData?.message ? `：${routeData.message}` : ''}`
         } catch (cause) { routeError = cause instanceof Error ? cause.message : "網路連線失敗" }
       }
-      if (!route) return error(`OSRM 無法取得道路路線（${routeError}）`, 502)
-      const distanceKm = Number(route.distance || 0) / 1000, durationMinutes = Math.round(Number(route.duration || 0) / 60)
+      const fallbackDistanceKm = ordered.reduce((total, point, index) => total + distance(index ? [ordered[index - 1].latitude, ordered[index - 1].longitude] : [originLat, originLon], [point.latitude, point.longitude]), 0) * 1.35
+      const distanceKm = route ? Number(route.distance || 0) / 1000 : fallbackDistanceKm, durationMinutes = route ? Math.round(Number(route.duration || 0) / 60) : 0
       const fuelEfficiency = Math.max(0.1, Number(body.fuelEfficiency || 5)), co2PerLiter = Math.max(0, Number(body.co2PerLiter || 2.69))
-      return reply({ ok: true, ordered, distanceKm, durationMinutes, carbonKg: distanceKm / fuelEfficiency * co2PerLiter })
+      return reply({ ok: true, ordered, distanceKm, durationMinutes, carbonKg: distanceKm / fuelEfficiency * co2PerLiter, estimated: !route, routeWarning: route ? '' : `無法取得道路路線（${routeError}），已改用直線距離 × 1.35 的預估值` })
     }
     if (action === "upsert") {
       const item = body.case as Record<string, unknown>

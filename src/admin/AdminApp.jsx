@@ -419,7 +419,9 @@ function RoutePlanner({ cases, vehicle }) {
       const byNo = Object.fromEntries(stops.map((item) => [item.case_no, item]))
       setStops(result.ordered.map((item) => ({ ...byNo[item.case_no], latitude: item.latitude, longitude: item.longitude })))
       setDistanceKm(Number(result.distanceKm || 0).toFixed(1)); setDurationMinutes(Number(result.durationMinutes || 0))
-      setRouteMessage(`已完成道路路線：${Number(result.distanceKm || 0).toFixed(1)} km／約 ${Number(result.durationMinutes || 0)} 分鐘／${Number(result.carbonKg || 0).toFixed(2)} kg CO₂e`)
+      setRouteMessage(result.estimated
+        ? `路線預估：${Number(result.distanceKm || 0).toFixed(1)} km／${Number(result.carbonKg || 0).toFixed(2)} kg CO₂e。${result.routeWarning || '道路路線暫時無法取得，已使用估算里程。'}`
+        : `已完成道路路線：${Number(result.distanceKm || 0).toFixed(1)} km／約 ${Number(result.durationMinutes || 0)} 分鐘／${Number(result.carbonKg || 0).toFixed(2)} kg CO₂e`)
     } catch (error) { setRouteMessage(`自動計算失敗：${error.message}`) } finally { setCalculating(false) }
   }
   const origin = '24.380891,120.734372'
