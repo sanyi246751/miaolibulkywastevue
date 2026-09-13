@@ -114,6 +114,15 @@ export default {
       const dbError = casesResult.error || vehiclesResult.error || workersResult.error || settingsResult.error || historyResult.error
       return dbError ? error(dbError.message, 500) : reply({ ok: true, database: { cases: casesResult.data || [], vehicles: vehiclesResult.data || [], workers: workersResult.data || [], system_settings: settingsResult.data || [], case_history: historyResult.data || [] } })
     }
+    if (action === "databaseDelete") {
+      const table = String(body.table || ""), allowed = ["cases", "vehicles", "workers", "system_settings", "case_history"]
+      if (!allowed.includes(table)) return error("不允許刪除此資料表")
+      const key = table === "cases" ? "case_no" : table === "system_settings" ? "setting_key" : "id"
+      const value = String(body.keyValue || "")
+      if (!value) return error("缺少刪除資料識別碼")
+      const { error: dbError } = await ctx.supabaseAdmin.from(table).delete().eq(key, value)
+      return dbError ? error(dbError.message, 500) : reply({ ok: true })
+    }
     if (action === "dispatchOptions") {
       const [{ data: vehicles, error: vehicleError }, { data: workers, error: workerError }, { data: settings, error: settingsError }] = await Promise.all([ctx.supabaseAdmin.from("vehicles").select("vehicle_no,fuel_efficiency,co2_per_liter").eq("active", true).order("vehicle_no"), ctx.supabaseAdmin.from("workers").select("name").eq("active", true).order("name"), ctx.supabaseAdmin.from("system_settings").select("setting_key,setting_value").eq("setting_key", "route_origin")])
       return vehicleError || workerError || settingsError ? error(vehicleError?.message || workerError?.message || settingsError?.message || "讀取派車設定失敗", 500) : reply({ ok: true, dispatch: { vehicles: vehicles || [], workers: (workers || []).map((item) => item.name), route_origin: settings?.[0]?.setting_value || "24.380891,120.734372" } })
