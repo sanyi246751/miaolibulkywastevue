@@ -360,7 +360,11 @@ export default function AdminApp() {
         photoIds.push(upload.fileId)
       }
       const note = String(draft.dispatch_note || '').trim()
-      await save({ status: '清運完成', dispatch_status: '清運完成', dispatch_note: `${note}${note ? '\n' : ''}結案照片 Google Drive ID：${JSON.stringify(photoIds)}` }, `已上傳 ${photoIds.length} 張結案照片，案件已標記為清運完成`)
+      const routeKey = `${dispatchOptions.route_origin}|${scheduledRouteCases.map((item) => item.case_no).sort().join('|')}`
+      const route = routeCache[routeKey]
+      const alreadyRecorded = cases.some((item) => item.case_no !== draft.case_no && dispatchGroupKey(item) === dispatchGroupKey(draft) && item.status === '清運完成' && Number(item.completion_distance_km || 0) > 0)
+      const metrics = route && !alreadyRecorded ? { completion_distance_km: Number(route.distanceKm || 0), completion_carbon_kg: Number(route.carbonKg || 0) } : {}
+      await save({ status: '清運完成', dispatch_status: '清運完成', dispatch_note: `${note}${note ? '\n' : ''}結案照片 Google Drive ID：${JSON.stringify(photoIds)}`, ...metrics }, `已上傳 ${photoIds.length} 張結案照片，案件已標記為清運完成${route && !alreadyRecorded ? '，班次里程與碳排量已計入' : ''}`)
     } catch (error) { setMessage(error.message) } finally { setLoading(false) }
   }
 
