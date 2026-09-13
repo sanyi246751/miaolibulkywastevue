@@ -55,7 +55,23 @@ export default {
       return dbError ? error("工作人員驗證碼不正確", 401) : reply({ ok: true, cases: data || [] })
     }
     if (action === "workerComplete") {
-      const { error: dbError } = await ctx.supabaseAdmin.rpc("worker_complete_case", { p_pin: String(body.pin || ""), p_case_id: String(body.caseId || ""), p_note: String(body.note || ""), p_photo_paths: body.photoPaths || [] })
+      const pin = String(body.pin || ""), caseId = String(body.caseId || "")
+      const { data: validPin, error: pinError } = await ctx.supabaseAdmin.rpc("verify_worker_pin", { p_pin: pin })
+      if (pinError || !validPin) return error("工作人員驗證碼不正確", 401)
+      const photoPaths: string[] = []
+      const files = Array.isArray(body.files) ? body.files.slice(0, 2) : []
+      for (const [index, input] of files.entries()) {
+        const file = input as Record<string, unknown>, base64 = String(file.fileBase64 || ""), mimeType = String(file.mimeType || "image/jpeg")
+        if (!base64 || !mimeType.startsWith("image/")) return error("結案照片格式不正確")
+        let bytes: Uint8Array; try { bytes = Uint8Array.from(atob(base64), (value) => value.charCodeAt(0)) } catch { return error("結案照片內容不正確") }
+        if (!bytes.length || bytes.length > 8 * 1024 * 1024) return error("每張結案照片須介於 1 B 至 8 MB")
+        const name = String(file.fileName || `finish-${index + 1}.jpg`).replace(/[^\w.-]/g, "_")
+        const path = `worker/${caseId}-${Date.now()}-${index + 1}-${name}`
+        const { error: uploadError } = await ctx.supabaseAdmin.storage.from("case-photos").upload(path, bytes, { contentType: mimeType, upsert: false })
+        if (uploadError) return error(`結案照片上傳失敗：${uploadError.message}`, 500)
+        photoPaths.push(path)
+      }
+      const { error: dbError } = await ctx.supabaseAdmin.rpc("worker_complete_case", { p_pin: pin, p_case_id: caseId, p_note: String(body.note || ""), p_photo_paths: photoPaths })
       return dbError ? error(dbError.message, 400) : reply({ ok: true })
     }
 

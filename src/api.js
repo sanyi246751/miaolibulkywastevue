@@ -24,6 +24,9 @@ export const adminPost = async (action, payload = {}) => {
 }
 export const createPublicCase = async (values) => (await request('publicCreate', values)).caseNo
 export const queryCase = async (caseNo, phone) => ({ case: (await request('query', { caseNo, phone })).case })
-export const workerGet = async (action, parameters = {}) => request(action === 'workerList' ? 'workerList' : action, parameters)
-export const workerPost = async (action, payload = {}) => request(action === 'completeWithPhoto' ? 'workerComplete' : action, { ...payload, caseId: payload.id, photoPaths: [] })
+export const workerGet = async (action, parameters = {}) => {
+  const result = await request(action === 'workerList' ? 'workerList' : action, parameters)
+  return action === 'workerList' ? { ...result, cases: (result.cases || []).map((item) => ({ ...item, caseId: item.case_id, caseNo: item.case_no, scheduledAt: item.scheduled_at, vehicleNo: item.vehicle_no, workerName: item.worker_name, wasteType: item.waste_type, reportNote: item.dispatch_note })) } : result
+}
+export const workerPost = async (action, payload = {}) => request(action === 'completeWithPhoto' ? 'workerComplete' : action, { ...payload, caseId: payload.id, files: payload.files || [] })
 export const toCasePayload = (item) => item
