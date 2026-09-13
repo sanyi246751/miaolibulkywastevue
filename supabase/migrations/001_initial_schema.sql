@@ -99,13 +99,13 @@ create policy "public can create pending cases" on public.cases
     and chargeable_quantity = 0
   );
 
--- 請將下列 email 改成你剛建立的管理員帳號 email 後再執行。
+-- 管理員帳號 email 請使用私有部署設定；請勿在公開版本庫寫入真實 email。
 -- 這個 helper 不會將密碼或 service key 放進前端。
 create or replace function public.is_admin()
 returns boolean language sql stable security definer set search_path = public, auth as $$
   select exists (
     select 1 from auth.users where id = auth.uid()
-      and email = 'sanyi246751@gmail.com'
+      and email = '__SET_ADMIN_EMAIL_PRIVATELY__'
   );
 $$;
 

@@ -10,6 +10,8 @@ const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers
 const reply = (body: unknown, status = 200) => Response.json(body, { status, headers: cors })
 const error = (message: string, status = 400) => reply({ ok: false, message }, status)
 const caseNo = () => { const d = new Date(); return `${d.getFullYear() - 1911}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}-${crypto.randomUUID().slice(0, 8).toUpperCase()}` }
+const adminEmail = () => String(Deno.env.get("ADMIN_EMAIL") || "").trim().toLowerCase()
+const geocoderUserAgent = () => `MiaoliBulkyWaste/1.0 (contact: ${String(Deno.env.get("NOMINATIM_CONTACT") || "admin")})`
 
 export default {
   fetch: withSupabase({ auth: ["publishable", "secret"] }, async (req, ctx) => {
@@ -78,7 +80,7 @@ export default {
     // 其餘操作皆需要登入的 Supabase 管理員。
     const bearer = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") || ""
     const { data: userResult, error: authError } = await ctx.supabaseAdmin.auth.getUser(bearer)
-    if (authError || userResult.user?.email?.toLowerCase() !== "sanyi246751@gmail.com") return error("管理員權限不足", 403)
+    if (!adminEmail() || authError || userResult.user?.email?.toLowerCase() !== adminEmail()) return error("管理員權限不足", 403)
     if (action === "createPhoneCase") {
       const applicant = String(body.applicant || "").trim(), phone = String(body.phone || "").trim(), address = String(body.address || "").trim(), wasteType = String(body.wasteType || "").trim()
       if (!applicant || !phone || !address || !wasteType) return error("請完整填寫申請人、電話、地址與清運品項")
@@ -182,7 +184,7 @@ export default {
           let match: any = null
           for (const query of geocodeQueries) {
             const geocodeUrl = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=tw&q=${encodeURIComponent(query)}`
-            const geocodeResponse = await fetch(geocodeUrl, { headers: { "User-Agent": "MiaoliBulkyWaste/1.0 (contact: sanyi246751@gmail.com)", "Accept-Language": "zh-TW" } })
+            const geocodeResponse = await fetch(geocodeUrl, { headers: { "User-Agent": geocoderUserAgent(), "Accept-Language": "zh-TW" } })
             const matches = await geocodeResponse.json().catch(() => [])
             if (geocodeResponse.ok && Array.isArray(matches) && matches[0]) { match = matches[0]; break }
             await new Promise((resolve) => setTimeout(resolve, 1100))
@@ -213,7 +215,7 @@ export default {
       let route: any = null, routeError = ""
       for (const routeUrl of routeUrls) {
         try {
-          const routeResponse = await fetch(routeUrl, { headers: { "User-Agent": "MiaoliBulkyWaste/1.0 (contact: sanyi246751@gmail.com)" } })
+          const routeResponse = await fetch(routeUrl, { headers: { "User-Agent": geocoderUserAgent() } })
           const routeData = await routeResponse.json().catch(() => ({}))
           if (routeResponse.ok && routeData?.routes?.[0]) { route = routeData.routes[0]; break }
           routeError = `${routeData?.code || `HTTP ${routeResponse.status}`}${routeData?.message ? `：${routeData.message}` : ''}`

@@ -104,6 +104,14 @@ VITE_SUPABASE_PUBLISHABLE_KEY=YOUR_PUBLISHABLE_KEY
 
 請勿提交 `.env` 或任何 Supabase 金鑰。
 
+Edge Function 的私有設定請以 Supabase Secrets 保存：
+
+```powershell
+npx supabase secrets set ADMIN_EMAIL=管理員Email NOMINATIM_CONTACT=定位服務聯絡資訊 --project-ref YOUR_PROJECT_REF
+```
+
+不要將管理員 email、Access Token、Service Role Key 寫入程式碼或公開版本庫。
+
 ## Supabase 部署
 
 資料庫 migration 位於 `supabase/migrations/`。
