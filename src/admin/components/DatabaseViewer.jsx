@@ -10,6 +10,7 @@ export default function DatabaseViewer({ cases, getMinguoTime }) {
   const [selected, setSelected] = useState(() => { try { const saved = JSON.parse(localStorage.getItem('miaoli_database_columns') || '[]'); return saved.length ? saved : defaults } catch { return defaults } })
   const [table, setTable] = useState('cases'), [database, setDatabase] = useState({ cases }), [loading, setLoading] = useState(false)
   const [keyword, setKeyword] = useState(''), [period, setPeriod] = useState('all'), [dateFrom, setDateFrom] = useState(''), [dateTo, setDateTo] = useState('')
+  const [draggingKey, setDraggingKey] = useState('')
   const persist = (next) => { localStorage.setItem('miaoli_database_columns', JSON.stringify(next)); setSelected(next) }
   const toggle = (key) => persist(selected.includes(key) ? selected.filter((x) => x !== key) : [...selected, key])
   const move = (key, offset) => { const index = selected.indexOf(key), target = index + offset; if (index < 0 || target < 0 || target >= selected.length) return; const next = [...selected]; [next[index], next[target]] = [next[target], next[index]]; persist(next) }
@@ -18,6 +19,21 @@ export default function DatabaseViewer({ cases, getMinguoTime }) {
   const source = table === 'cases' ? (database.cases || cases) : (database[table] || [])
   const columns = table === 'cases' ? selected.map((key) => caseColumns.find(([k]) => k === key)).filter(Boolean) : (source[0] ? Object.keys(source[0]).map((key) => [key, labels[key] || key]) : [])
   const records = source.filter((item) => { const date = String(item.created_at || '').slice(0,10), inPeriod = table !== 'cases' || period === 'all' || period === 'year' && date >= yearStart && date <= today || period === 'quarter' && date >= quarterStart && date <= today || period === 'month' && date >= monthStart && date <= today || period === 'custom' && (!dateFrom || date >= dateFrom) && (!dateTo || date <= dateTo); return inPeriod && Object.values(item).join(' ').toLowerCase().includes(keyword.trim().toLowerCase()) })
+  useEffect(() => {
+    if (table !== 'cases') return
+    const headers = [...document.querySelectorAll('thead th')].slice(1)
+    const removers = headers.map((header, index) => {
+      const targetKey = columns[index]?.[0]
+      if (!targetKey) return () => {}
+      header.draggable = true; header.style.cursor = 'grab'; header.title = '可拖曳此欄位左右移動'
+      const start = () => setDraggingKey(targetKey)
+      const over = (event) => event.preventDefault()
+      const drop = (event) => { event.preventDefault(); if (!draggingKey || draggingKey === targetKey) return; const from = selected.indexOf(draggingKey), to = selected.indexOf(targetKey); if (from < 0 || to < 0) return; const next = [...selected]; next.splice(from, 1); next.splice(to, 0, draggingKey); setSelected(next); if (window.confirm('確認儲存拖曳後的欄位順序嗎？')) localStorage.setItem('miaoli_database_columns', JSON.stringify(next)); setDraggingKey('') }
+      header.addEventListener('dragstart', start); header.addEventListener('dragover', over); header.addEventListener('drop', drop)
+      return () => { header.removeEventListener('dragstart', start); header.removeEventListener('dragover', over); header.removeEventListener('drop', drop); header.draggable = false; header.style.cursor = '' }
+    })
+    return () => removers.forEach((remove) => remove())
+  }, [table, selected, draggingKey])
   const value = (item, key) => { if (['requested_scheduled_at','scheduled_at','created_at','updated_at'].includes(key)) return getMinguoTime(item[key]); if (key === 'fee_amount') return `NT$ ${Number(item[key] || 0).toLocaleString()}`; if (key === 'photo_paths' || key === 'completion_photo_paths') { try { return `${JSON.parse(item[key] || '[]').length} 張` } catch { return '0 張' } }; const raw = item[key]; return raw == null ? '—' : typeof raw === 'object' ? JSON.stringify(raw) : raw }
   const exportCsv = () => { if (!columns.length) return; const cell = (v) => `"${String(v ?? '').replaceAll('"','""')}"`, csv = '\ufeff' + [columns.map(([,label]) => cell(label)).join(','),...records.map((item) => columns.map(([key]) => cell(value(item,key))).join(','))].join('\r\n'), url = URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'})), link = document.createElement('a'); link.href=url; link.download=`${tables.find(([key])=>key===table)?.[1]}_${today}.csv`; link.click(); URL.revokeObjectURL(url) }
   const remove = async (item) => { const keyValue = table === 'cases' ? item.case_no : table === 'system_settings' ? item.setting_key : item.id; if (!keyValue || !window.confirm('確定刪除這筆資料嗎？此動作無法復原。')) return; try { await adminPost('databaseDelete',{table,keyValue}); setDatabase((old) => ({...old,[table]:(old[table] || []).filter((row) => (table === 'cases' ? row.case_no : table === 'system_settings' ? row.setting_key : row.id) !== keyValue)})) } catch (error) { window.alert(`刪除失敗：${error.message}`) } }
