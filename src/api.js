@@ -1,5 +1,7 @@
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
-const PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
+// GitHub Pages 的建置環境不會讀取開發電腦的 .env。這兩個值屬於前端
+// 公開連線設定（不是 service_role 密鑰），保留預設值可避免正式站空白。
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://gmddnvtkthajwodyingl.supabase.co'
+const PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_-DsUAg3oW-D3hEHtgeKb4A_sqwEPVmy'
 const CASE_API_URL = `${SUPABASE_URL}/functions/v1/case-api`
 export const GAS_URL = ''
 
