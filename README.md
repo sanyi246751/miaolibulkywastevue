@@ -125,6 +125,10 @@ git push origin main
 
 推送至 `main` 後，GitHub Actions 會建置並發布 GitHub Pages。
 
+- 民眾端：`https://sanyi246751.github.io/miaolibulkywastevue/`
+- 管理端：`https://sanyi246751.github.io/miaolibulkywastevue/admin.html`
+- 工作端：`https://sanyi246751.github.io/miaolibulkywastevue/work.html`
+
 ## 專案結構
 
 ```text
