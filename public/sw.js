@@ -1,4 +1,5 @@
-const CACHE_NAME = 'miaoli-removal-v5'
+// 版本更新時淘汰舊版 HTML 與 JavaScript，避免 GitHub Pages 更新後仍顯示快取的舊畫面。
+const CACHE_NAME = 'miaoli-removal-v6'
 const BASE_PATH = new URL(self.registration.scope).pathname
 const fromBase = (path = '') => `${BASE_PATH}${path}`
 const APP_SHELL = [fromBase(),fromBase('index.html'),fromBase('admin.html'),fromBase('work.html'),fromBase('offline.html'),fromBase('manifest.webmanifest'),fromBase('pwa-icon.svg')]
