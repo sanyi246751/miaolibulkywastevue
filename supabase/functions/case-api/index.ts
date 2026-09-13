@@ -103,6 +103,17 @@ export default {
       return removeError ? error(removeError.message, 500) : reply({ ok: true })
     }
     if (action === "list") { const { data, error: dbError } = await ctx.supabaseAdmin.from("cases").select("*").order("created_at", { ascending: false }); return dbError ? error(dbError.message, 500) : reply({ ok: true, cases: data || [] }) }
+    if (action === "databaseView") {
+      const [casesResult, vehiclesResult, workersResult, settingsResult, historyResult] = await Promise.all([
+        ctx.supabaseAdmin.from("cases").select("*").order("created_at", { ascending: false }),
+        ctx.supabaseAdmin.from("vehicles").select("*").order("vehicle_no"),
+        ctx.supabaseAdmin.from("workers").select("*").order("name"),
+        ctx.supabaseAdmin.from("system_settings").select("*").order("setting_key"),
+        ctx.supabaseAdmin.from("case_history").select("*").order("created_at", { ascending: false }),
+      ])
+      const dbError = casesResult.error || vehiclesResult.error || workersResult.error || settingsResult.error || historyResult.error
+      return dbError ? error(dbError.message, 500) : reply({ ok: true, database: { cases: casesResult.data || [], vehicles: vehiclesResult.data || [], workers: workersResult.data || [], system_settings: settingsResult.data || [], case_history: historyResult.data || [] } })
+    }
     if (action === "dispatchOptions") {
       const [{ data: vehicles, error: vehicleError }, { data: workers, error: workerError }, { data: settings, error: settingsError }] = await Promise.all([ctx.supabaseAdmin.from("vehicles").select("vehicle_no,fuel_efficiency,co2_per_liter").eq("active", true).order("vehicle_no"), ctx.supabaseAdmin.from("workers").select("name").eq("active", true).order("name"), ctx.supabaseAdmin.from("system_settings").select("setting_key,setting_value").eq("setting_key", "route_origin")])
       return vehicleError || workerError || settingsError ? error(vehicleError?.message || workerError?.message || settingsError?.message || "讀取派車設定失敗", 500) : reply({ ok: true, dispatch: { vehicles: vehicles || [], workers: (workers || []).map((item) => item.name), route_origin: settings?.[0]?.setting_value || "24.380891,120.734372" } })
