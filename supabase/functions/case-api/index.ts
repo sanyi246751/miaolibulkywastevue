@@ -180,7 +180,7 @@ export default {
       const { error: dbError } = await ctx.supabaseAdmin.rpc("worker_complete_case", { p_pin: pin, p_case_id: caseId, p_note: String(body.note || ""), p_photo_paths: photoPaths })
       if (!dbError && stagedPhotoPaths.length) {
         await ctx.supabaseAdmin.from("photo_sync_jobs").insert(stagedPhotoPaths.map((storagePath, index) => ({ case_no: caseRecord.case_no, storage_path: storagePath, target_file_name: `${caseRecord.case_no}-finish-${index + 1}.jpg`, photo_kind: "completion" })))
-        EdgeRuntime.waitUntil(syncCasePhotos(ctx.supabaseAdmin, caseRecord.case_no))
+        await syncCasePhotos(ctx.supabaseAdmin, caseRecord.case_no)
       }
       return dbError ? error(dbError.message, 400) : reply({ ok: true })
     }
