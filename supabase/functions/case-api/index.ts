@@ -190,6 +190,31 @@ export default {
     const { data: userResult, error: authError } = await ctx.supabaseAdmin.auth.getUser(bearer)
     const permittedAdminEmails = adminEmails()
     if (!permittedAdminEmails.length || authError || !permittedAdminEmails.includes(userResult.user?.email?.toLowerCase() || "")) return error("管理員權限不足", 403)
+    if (action === "adminPrepareCompletionUploads") {
+      const caseNo = String(body.caseNo || ""), photos = Array.isArray(body.photos) ? body.photos : []
+      if (!caseNo || !photos.length || photos.length > 2) return error("結案照片資料不正確")
+      const sessionId = crypto.randomUUID(), paths: string[] = []
+      for (const [index, photo] of photos.entries()) {
+        const info = photo as Record<string, unknown>, mimeType = String(info.mimeType || ""), size = Number(info.size || 0)
+        if (!mimeType.startsWith("image/") || !Number.isFinite(size) || size < 1 || size > 8 * 1024 * 1024) return error("結案照片格式或大小不正確")
+        paths.push(`staging/${sessionId}/${caseNo}-finish-${index + 1}.jpg`)
+      }
+      const uploads = await Promise.all(paths.map(async (path) => {
+        const { data, error: uploadError } = await ctx.supabaseAdmin.storage.from("case-photos").createSignedUploadUrl(path)
+        if (uploadError || !data?.signedUrl) throw new Error(uploadError?.message || "無法建立結案照片上傳網址")
+        return { path, signedUrl: data.signedUrl }
+      })).catch((uploadError) => ({ error: uploadError }))
+      if (!Array.isArray(uploads)) return error(uploads.error instanceof Error ? uploads.error.message : "無法建立結案照片上傳網址", 500)
+      return reply({ ok: true, uploads })
+    }
+    if (action === "adminQueueCompletionPhotos") {
+      const caseNo = String(body.caseNo || ""), stagedPhotoPaths = Array.isArray(body.stagedPhotoPaths) ? body.stagedPhotoPaths.map(String) : []
+      if (!caseNo || !stagedPhotoPaths.length || stagedPhotoPaths.length > 2 || stagedPhotoPaths.some((path) => !path.startsWith("staging/"))) return error("結案照片暫存路徑不正確")
+      const { error: jobError } = await ctx.supabaseAdmin.from("photo_sync_jobs").insert(stagedPhotoPaths.map((storagePath, index) => ({ case_no: caseNo, storage_path: storagePath, target_file_name: `${caseNo}-finish-${index + 1}.jpg`, photo_kind: "completion" })))
+      if (jobError) return error(jobError.message, 500)
+      await syncCasePhotos(ctx.supabaseAdmin, caseNo)
+      return reply({ ok: true })
+    }
     if (action === "createPhoneCase") {
       const applicant = String(body.applicant || "").trim(), phone = String(body.phone || "").trim(), address = String(body.address || "").trim(), wasteType = String(body.wasteType || "").trim()
       if (!applicant || !phone || !address || !wasteType) return error("請完整填寫申請人、電話、地址與清運品項")

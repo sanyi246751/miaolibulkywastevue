@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from '../vueHooks.js'
-import { adminLogin, adminPost, toCasePayload } from '../api.js'
+import { adminLogin, adminPost, toCasePayload, uploadSignedPhoto } from '../api.js'
 import { getMinguoTime } from './utils/formatters.js'
 import SystemSettings from './components/SystemSettings.jsx'
 import SupabaseDashboard from './components/SupabaseDashboard.jsx'
@@ -355,20 +355,19 @@ export default function AdminApp() {
     if (files.some((file) => file.size > 8 * 1024 * 1024)) return setMessage('每張結案照片不可超過 8 MB')
     setLoading(true); setMessage(`正在上傳結案照片（0/${files.length}）…`)
     try {
-      const photoIds = []
-      for (const [index, file] of files.entries()) {
-        setMessage(`正在上傳結案照片（${index + 1}/${files.length}）…`)
-        const base64 = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.onerror = reject; reader.readAsDataURL(file) })
-        const extension = (file.name.split('.').pop() || 'jpg').replace(/[^a-z0-9]/gi, '') || 'jpg'
-        const upload = await adminPost('upload', { fileName: `${draft.case_no}-finish-${index + 1}.${extension}`, mimeType: file.type, base64 })
-        photoIds.push(upload.fileId)
-      }
+      const uploadSession = await adminPost('adminPrepareCompletionUploads', { caseNo: draft.case_no, photos: files.map((file) => ({ mimeType: file.type, size: file.size })) })
+      await Promise.all(uploadSession.uploads.map((upload, index) => uploadSignedPhoto(upload.signedUrl, files[index], files[index].type)))
+      const photoIds = uploadSession.uploads.map((upload) => upload.path)
       const note = String(draft.dispatch_note || '').trim()
       const routeKey = `${dispatchOptions.route_origin}|${scheduledRouteCases.map((item) => item.case_no).sort().join('|')}`
       const route = routeCache[routeKey]
       const alreadyRecorded = cases.some((item) => item.case_no !== draft.case_no && dispatchGroupKey(item) === dispatchGroupKey(draft) && item.status === '清運完成' && Number(item.completion_distance_km || 0) > 0)
       const metrics = route && !alreadyRecorded ? { completion_distance_km: Number(route.distanceKm || 0), completion_carbon_kg: Number(route.carbonKg || 0) } : {}
-      await save({ status: '清運完成', dispatch_status: '清運完成', dispatch_note: `${note}${note ? '\n' : ''}結案照片 Google Drive ID：${JSON.stringify(photoIds)}`, ...metrics }, `已上傳 ${photoIds.length} 張結案照片，案件已標記為清運完成${route && !alreadyRecorded ? '，班次里程與碳排量已計入' : ''}`)
+      const next = { ...draft, status: '清運完成', dispatch_status: '清運完成', completion_photo_paths: photoIds, dispatch_note: note, ...metrics }
+      await adminPost('upsert', { case: toCasePayload(next) })
+      await adminPost('adminQueueCompletionPhotos', { caseNo: draft.case_no, stagedPhotoPaths: photoIds })
+      setMessage(`已上傳 ${photoIds.length} 張結案照片，案件已標記為清運完成${route && !alreadyRecorded ? '，班次里程與碳排量已計入' : ''}`)
+      await loadCases()
     } catch (error) { setMessage(error.message) } finally { setLoading(false) }
   }
 
