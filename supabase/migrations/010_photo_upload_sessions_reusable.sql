@@ -1,0 +1,1 @@
+alter table public.photo_upload_sessions drop constraint if exists photo_upload_sessions_case_no_key;

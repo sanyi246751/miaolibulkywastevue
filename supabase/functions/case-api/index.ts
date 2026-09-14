@@ -32,6 +32,31 @@ const uploadDrivePhoto = async (supabase: { from: (table: string) => any }, case
   if (!result.fileId) throw new Error("Google Drive 未回傳檔案識別碼")
   return `drive:${result.fileId}`
 }
+const syncCasePhotos = async (supabase: any, caseNo: string) => {
+  const { data: jobs } = await supabase.from("photo_sync_jobs").select("*").eq("case_no", caseNo).in("status", ["pending", "failed"]).order("id")
+  for (const job of jobs || []) {
+    try {
+      await supabase.from("photo_sync_jobs").update({ status: "syncing", attempts: Number(job.attempts || 0) + 1, updated_at: new Date().toISOString(), last_error: null }).eq("id", job.id)
+      const { data: file, error: downloadError } = await supabase.storage.from("case-photos").download(job.storage_path)
+      if (downloadError || !file) throw new Error(downloadError?.message || "找不到 Supabase 暫存照片")
+      const bytes = new Uint8Array(await file.arrayBuffer())
+      let binary = ""; for (const byte of bytes) binary += String.fromCharCode(byte)
+      const drivePath = await uploadDrivePhoto(supabase, job.case_no, job.target_file_name, file.type || "image/jpeg", btoa(binary))
+      const column = job.photo_kind === "completion" ? "completion_photo_paths" : "photo_paths"
+      const { data: currentCase, error: caseError } = await supabase.from("cases").select(column).eq("case_no", caseNo).single()
+      if (caseError || !currentCase) throw new Error(caseError?.message || "找不到案件資料")
+      const currentPaths = Array.isArray(currentCase[column]) ? currentCase[column].map(String) : []
+      const nextPaths = currentPaths.map((path) => path === job.storage_path ? drivePath : path)
+      const { error: updateError } = await supabase.from("cases").update({ [column]: nextPaths }).eq("case_no", caseNo)
+      if (updateError) throw new Error(updateError.message)
+      const { error: removeError } = await supabase.storage.from("case-photos").remove([job.storage_path])
+      if (removeError) throw new Error(removeError.message)
+      await supabase.from("photo_sync_jobs").update({ status: "completed", drive_file_id: drivePath.slice("drive:".length), updated_at: new Date().toISOString() }).eq("id", job.id)
+    } catch (syncError) {
+      await supabase.from("photo_sync_jobs").update({ status: "failed", last_error: syncError instanceof Error ? syncError.message : "同步失敗", updated_at: new Date().toISOString() }).eq("id", job.id)
+    }
+  }
+}
 // `ADMIN_EMAILS` 支援以逗號或分號設定多位管理員；保留舊的
 // `ADMIN_EMAIL`，讓既有部署不必立刻調整。
 const adminEmails = () => String(Deno.env.get("ADMIN_EMAILS") || Deno.env.get("ADMIN_EMAIL") || "")
@@ -48,18 +73,48 @@ export default {
     const action = String(body.action || "")
     if (action === "health") return reply({ ok: true, service: "case-api" })
 
+    if (action === "publicPrepareUploads") {
+      const photos = Array.isArray(body.photos) ? body.photos : []
+      if (!photos.length || photos.length > 8) return error("待清運照片數量不正確")
+      const sessionId = crypto.randomUUID(), no = await caseNo(ctx.supabaseAdmin)
+      const paths: string[] = []
+      for (const [index, photo] of photos.entries()) {
+        const mimeType = String((photo as Record<string, unknown>).mimeType || "")
+        const size = Number((photo as Record<string, unknown>).size || 0)
+        if (!mimeType.startsWith("image/") || !Number.isFinite(size) || size < 1 || size > 8 * 1024 * 1024) return error("照片格式或大小不正確")
+        paths.push(`staging/${sessionId}/${no}-${index + 1}.jpg`)
+      }
+      const { error: sessionError } = await ctx.supabaseAdmin.from("photo_upload_sessions").insert({ id: sessionId, case_no: no, photo_paths: paths, expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString() })
+      if (sessionError) return error(sessionError.message, 500)
+      const uploads = await Promise.all(paths.map(async (path) => {
+        const { data, error: uploadError } = await ctx.supabaseAdmin.storage.from("case-photos").createSignedUploadUrl(path)
+        if (uploadError || !data?.signedUrl) throw new Error(uploadError?.message || "無法建立照片上傳網址")
+        return { path, signedUrl: data.signedUrl }
+      })).catch((uploadError) => ({ error: uploadError }))
+      if (!Array.isArray(uploads)) return error(uploads.error instanceof Error ? uploads.error.message : "無法建立照片上傳網址", 500)
+      return reply({ ok: true, sessionId, caseNo: no, uploads })
+    }
+
     if (action === "publicCreate") {
       const applicant = String(body.applicant || "").trim(), phone = String(body.phone || "").trim(), county = String(body.county || "").trim(), district = String(body.district || "").trim(), addressDetail = String(body.addressDetail || "").trim(), wasteType = String(body.wasteType || "").trim()
       const suppliedAddress = String(body.address || "").trim()
       const address = suppliedAddress || `${county}${district}${addressDetail}`
       if (!applicant || !phone || !county || !district || !addressDetail || !address || !wasteType) return error("請完整填寫申請資料")
-      let no: string
-      try { no = await caseNo(ctx.supabaseAdmin) } catch (numberError) { return error(numberError instanceof Error ? numberError.message : "無法產生預約單號", 500) }
+      const uploadSessionId = String(body.uploadSessionId || "")
+      let no: string, photoPaths: string[] = []
+      if (uploadSessionId) {
+        const { data: session, error: sessionError } = await ctx.supabaseAdmin.from("photo_upload_sessions").select("case_no,photo_paths,expires_at").eq("id", uploadSessionId).single()
+        if (sessionError || !session || new Date(session.expires_at).getTime() < Date.now()) return error("照片上傳工作階段已失效，請重新送出", 400)
+        no = session.case_no
+        photoPaths = Array.isArray(session.photo_paths) ? session.photo_paths.map(String) : []
+        if (!photoPaths.length) return error("找不到已上傳照片", 400)
+      } else {
+        try { no = await caseNo(ctx.supabaseAdmin) } catch (numberError) { return error(numberError instanceof Error ? numberError.message : "無法產生預約單號", 500) }
+      }
       // 民眾照片由 Edge Function 轉送至 Google Drive；資料庫只保存 Drive 檔案 ID。
       const inputs = Array.isArray(body.photos) ? body.photos : body.photo ? [body.photo] : []
       if (inputs.length > 8) return error("待清運照片最多上傳 8 張")
-      const photoPaths: string[] = []
-      for (const [index, input] of inputs.entries()) {
+      for (const [index, input] of uploadSessionId ? [].entries() : inputs.entries()) {
         const photo = input as Record<string, unknown>
         const mimeType = String(photo.mimeType || "image/jpeg")
         const base64 = String(photo.base64 || "")
@@ -70,6 +125,11 @@ export default {
         try { photoPaths.push(await uploadDrivePhoto(ctx.supabaseAdmin, no, `${no}-${index + 1}.jpg`, mimeType, base64)) } catch (uploadError) { return error(`待清運照片上傳失敗：${uploadError instanceof Error ? uploadError.message : "未知錯誤"}`, 500) }
       }
       const { error: dbError } = await ctx.supabaseAdmin.from("cases").insert({ case_no: no, applicant, phone, address, waste_type: wasteType, quantity: Math.max(1, Number(body.quantity || 1)), status: "待處理", requested_scheduled_at: body.preferredDate ? `${body.preferredDate}T00:00:00+08:00` : null, dispatch_period: String(body.preferredTimeSlot || ""), dispatch_note: String(body.locationNote || ""), email: String(body.email || "") || null, photo_paths: photoPaths })
+      if (!dbError && uploadSessionId) {
+        await ctx.supabaseAdmin.from("photo_sync_jobs").insert(photoPaths.map((storagePath, index) => ({ case_no: no, storage_path: storagePath, target_file_name: `${no}-${index + 1}.jpg`, photo_kind: "pending" })))
+        await ctx.supabaseAdmin.from("photo_upload_sessions").delete().eq("id", uploadSessionId)
+        EdgeRuntime.waitUntil(syncCasePhotos(ctx.supabaseAdmin, no))
+      }
       return dbError ? error(dbError.message, 500) : reply({ ok: true, caseNo: no })
     }
     if (action === "query") {
@@ -80,15 +140,37 @@ export default {
       const { data, error: dbError } = await ctx.supabaseAdmin.rpc("worker_list", { p_pin: String(body.pin || ""), p_keyword: String(body.keyword || "") })
       return dbError ? error("工作人員驗證碼不正確", 401) : reply({ ok: true, cases: data || [] })
     }
+    if (action === "workerPrepareUploads") {
+      const pin = String(body.pin || ""), caseId = String(body.caseId || ""), photos = Array.isArray(body.photos) ? body.photos : []
+      const { data: validPin, error: pinError } = await ctx.supabaseAdmin.rpc("verify_worker_pin", { p_pin: pin })
+      if (pinError || !validPin || !caseId) return error("工作人員驗證碼不正確", 401)
+      const { data: caseRecord, error: caseError } = await ctx.supabaseAdmin.from("cases").select("case_no").eq("id", caseId).single()
+      if (caseError || !caseRecord?.case_no || !photos.length || photos.length > 2) return error("結案照片資料不正確")
+      const sessionId = crypto.randomUUID(), paths: string[] = []
+      for (const [index, photo] of photos.entries()) {
+        const info = photo as Record<string, unknown>, mimeType = String(info.mimeType || ""), size = Number(info.size || 0)
+        if (!mimeType.startsWith("image/") || !Number.isFinite(size) || size < 1 || size > 8 * 1024 * 1024) return error("結案照片格式或大小不正確")
+        paths.push(`staging/${sessionId}/${caseRecord.case_no}-finish-${index + 1}.jpg`)
+      }
+      const uploads = await Promise.all(paths.map(async (path) => {
+        const { data, error: uploadError } = await ctx.supabaseAdmin.storage.from("case-photos").createSignedUploadUrl(path)
+        if (uploadError || !data?.signedUrl) throw new Error(uploadError?.message || "無法建立結案照片上傳網址")
+        return { path, signedUrl: data.signedUrl }
+      })).catch((uploadError) => ({ error: uploadError }))
+      if (!Array.isArray(uploads)) return error(uploads.error instanceof Error ? uploads.error.message : "無法建立結案照片上傳網址", 500)
+      return reply({ ok: true, uploads })
+    }
     if (action === "workerComplete") {
       const pin = String(body.pin || ""), caseId = String(body.caseId || "")
       const { data: validPin, error: pinError } = await ctx.supabaseAdmin.rpc("verify_worker_pin", { p_pin: pin })
       if (pinError || !validPin) return error("工作人員驗證碼不正確", 401)
       const { data: caseRecord, error: caseError } = await ctx.supabaseAdmin.from("cases").select("case_no").eq("id", caseId).single()
       if (caseError || !caseRecord?.case_no) return error("找不到案件資料", 404)
-      const photoPaths: string[] = []
+      const stagedPhotoPaths = Array.isArray(body.stagedPhotoPaths) ? body.stagedPhotoPaths.map(String) : []
+      const photoPaths: string[] = [...stagedPhotoPaths]
+      if (stagedPhotoPaths.some((path) => !path.startsWith("staging/")) || stagedPhotoPaths.length > 2) return error("結案照片暫存路徑不正確")
       const files = Array.isArray(body.files) ? body.files.slice(0, 2) : []
-      for (const [index, input] of files.entries()) {
+      for (const [index, input] of stagedPhotoPaths.length ? [].entries() : files.entries()) {
         const file = input as Record<string, unknown>, base64 = String(file.fileBase64 || ""), mimeType = String(file.mimeType || "image/jpeg")
         if (!base64 || !mimeType.startsWith("image/")) return error("結案照片格式不正確")
         let bytes: Uint8Array; try { bytes = Uint8Array.from(atob(base64), (value) => value.charCodeAt(0)) } catch { return error("結案照片內容不正確") }
@@ -96,6 +178,10 @@ export default {
         try { photoPaths.push(await uploadDrivePhoto(ctx.supabaseAdmin, caseRecord.case_no, `${caseRecord.case_no}-finish-${index + 1}.jpg`, mimeType, base64)) } catch (uploadError) { return error(`結案照片上傳失敗：${uploadError instanceof Error ? uploadError.message : "未知錯誤"}`, 500) }
       }
       const { error: dbError } = await ctx.supabaseAdmin.rpc("worker_complete_case", { p_pin: pin, p_case_id: caseId, p_note: String(body.note || ""), p_photo_paths: photoPaths })
+      if (!dbError && stagedPhotoPaths.length) {
+        await ctx.supabaseAdmin.from("photo_sync_jobs").insert(stagedPhotoPaths.map((storagePath, index) => ({ case_no: caseRecord.case_no, storage_path: storagePath, target_file_name: `${caseRecord.case_no}-finish-${index + 1}.jpg`, photo_kind: "completion" })))
+        EdgeRuntime.waitUntil(syncCasePhotos(ctx.supabaseAdmin, caseRecord.case_no))
+      }
       return dbError ? error(dbError.message, 400) : reply({ ok: true })
     }
 

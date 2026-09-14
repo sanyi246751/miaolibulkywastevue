@@ -25,10 +25,16 @@ export const adminPost = async (action, payload = {}) => {
   return action === 'list' ? { ...result, cases: result.cases.map(fromDb) } : result
 }
 export const createPublicCase = async (values) => (await request('publicCreate', values)).caseNo
+export const preparePublicUploads = async (photos) => request('publicPrepareUploads', { photos })
+export const uploadSignedPhoto = async (signedUrl, file, mimeType) => {
+  const response = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': mimeType }, body: file })
+  if (!response.ok) throw new Error('照片暫存上傳失敗')
+}
 export const queryCase = async (caseNo, phone) => ({ case: (await request('query', { caseNo, phone })).case })
 export const workerGet = async (action, parameters = {}) => {
   const result = await request(action === 'workerList' ? 'workerList' : action, parameters)
   return action === 'workerList' ? { ...result, cases: (result.cases || []).map((item) => ({ ...item, caseId: item.case_id, caseNo: item.case_no, scheduledAt: item.scheduled_at, vehicleNo: item.vehicle_no, workerName: item.worker_name, wasteType: item.waste_type, reportNote: item.dispatch_note })) } : result
 }
+export const prepareWorkerUploads = async (payload) => request('workerPrepareUploads', payload)
 export const workerPost = async (action, payload = {}) => request(action === 'completeWithPhoto' ? 'workerComplete' : action, { ...payload, caseId: payload.id, files: payload.files || [] })
 export const toCasePayload = (item) => item

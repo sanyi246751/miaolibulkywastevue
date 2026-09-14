@@ -8,7 +8,7 @@ import Footer from './components/Footer.jsx';
 import QRCodeBox from './components/QRCodeBox.jsx';
 import { CATEGORIES, COUNTIES, DISTRICTS_BY_COUNTY, TERMS_LIST, getUnavailableBookingReason } from './data/appData.js';
 import { formatMinguoDate, formatTaiwanPhone, getMinguoTime } from './utils/formatters.js';
-import { GAS_URL, createPublicCase, queryCase } from './api.js';
+import { GAS_URL, createPublicCase, preparePublicUploads, queryCase, uploadSignedPhoto } from './api.js';
 
     // Main App Component
     export default function App() {
@@ -88,7 +88,10 @@ import { GAS_URL, createPublicCase, queryCase } from './api.js';
               const canvas = document.createElement('canvas');
               canvas.width = Math.round(image.width * scale); canvas.height = Math.round(image.height * scale);
               canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
-              setPhotos((prev) => [...prev, { id: Date.now() + Math.random(), name: file.name.replace(/\.[^.]+$/, '') + '.jpg', url: canvas.toDataURL('image/jpeg', 0.84) }]);
+              canvas.toBlob((blob) => {
+                if (!blob) return;
+                setPhotos((prev) => [...prev, { id: Date.now() + Math.random(), name: file.name.replace(/\.[^.]+$/, '') + '.jpg', file: blob, url: URL.createObjectURL(blob) }]);
+              }, 'image/jpeg', 0.84);
             };
             image.src = ev.target.result;
           };
@@ -143,16 +146,13 @@ import { GAS_URL, createPublicCase, queryCase } from './api.js';
         try {
           const totalQuantity = selectedItems.reduce((total, item) => total + Number(item.quantity || 0), 0);
           const wasteType = selectedItems.map((item) => `${item.name}×${item.quantity}`).join('、');
-          const pendingPhotos = photos.map((photo) => ({
-            name: photo.name,
-            mimeType: String(photo.url).slice(5, String(photo.url).indexOf(';')) || 'image/jpeg',
-            base64: String(photo.url).split(',')[1]
-          }));
+          const uploadSession = photos.length ? await preparePublicUploads(photos.map((photo) => ({ mimeType: photo.file?.type || 'image/jpeg', size: photo.file?.size || 0 }))) : null;
+          if (uploadSession) await Promise.all(uploadSession.uploads.map((upload, index) => uploadSignedPhoto(upload.signedUrl, photos[index].file, photos[index].file?.type || 'image/jpeg')));
           const fullAddress = `${county}${district}${detailAddress.trim()}`;
           const bookingId = await createPublicCase({
             applicant: applicantName.trim(), phone: formatTaiwanPhone(phone),
             county, district, address: fullAddress, addressDetail: detailAddress.trim(), wasteType, quantity: totalQuantity,
-            preferredDate, preferredTimeSlot, locationNote, email: email.trim(), photos: pendingPhotos
+            preferredDate, preferredTimeSlot, locationNote, email: email.trim(), uploadSessionId: uploadSession?.sessionId
           });
           const newBooking = {
             id: bookingId, applicantName, phone: formatTaiwanPhone(phone), email,

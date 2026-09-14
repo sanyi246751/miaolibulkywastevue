@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from '../vueHooks.js'
-import { workerGet, workerPost } from '../api.js'
+import { prepareWorkerUploads, uploadSignedPhoto, workerGet, workerPost } from '../api.js'
 
 const PIN_KEY = 'worker_pin'
 const formatMinguoDateTime = (value) => {
@@ -61,11 +61,13 @@ export default function WorkApp() {
     setLoading(true); setMessage('')
     try {
       const files = await Promise.all(completionPhotos.map((file, index) => prepareCompletionPhoto(file, index, active.caseNo)))
+      const uploadSession = await prepareWorkerUploads({ pin, caseId: active.caseId || active.id || active.caseNo, photos: files.map((file) => ({ mimeType: file.mimeType, size: file.file.size })) })
+      await Promise.all(uploadSession.uploads.map((upload, index) => uploadSignedPhoto(upload.signedUrl, files[index].file, files[index].mimeType)))
       await workerPost('completeWithPhoto', {
         id: active.caseId || active.id || active.caseNo,
         pin,
         note: note.trim() || '隊員已現場載運完畢並拍照結案',
-        files
+        stagedPhotoPaths: uploadSession.uploads.map((upload) => upload.path)
       })
       setActive(null); setNote(''); setCompletionPhotos([]); setMessage(`案件 ${active.caseNo} 已更新為「清運完成」`)
       await load()
@@ -97,11 +99,6 @@ async function prepareCompletionPhoto(file, index, caseNo) {
   canvas.height = Math.round(image.height * scale)
   canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height)
   const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.82))
-  const base64 = await new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result).split(',')[1])
-    reader.onerror = reject
-    reader.readAsDataURL(blob || file)
-  })
-  return { fileBase64: base64, fileName: `${caseNo}-finish-${index + 1}.jpg`, mimeType: 'image/jpeg' }
+  const output = blob || file
+  return { file: output, fileName: `${caseNo}-finish-${index + 1}.jpg`, mimeType: 'image/jpeg' }
 }
