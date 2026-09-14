@@ -10,7 +10,12 @@ const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers
 const reply = (body: unknown, status = 200) => Response.json(body, { status, headers: cors })
 const error = (message: string, status = 400) => reply({ ok: false, message }, status)
 const caseNo = () => { const d = new Date(); return `${d.getFullYear() - 1911}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}-${crypto.randomUUID().slice(0, 8).toUpperCase()}` }
-const adminEmail = () => String(Deno.env.get("ADMIN_EMAIL") || "").trim().toLowerCase()
+// `ADMIN_EMAILS` 支援以逗號或分號設定多位管理員；保留舊的
+// `ADMIN_EMAIL`，讓既有部署不必立刻調整。
+const adminEmails = () => String(Deno.env.get("ADMIN_EMAILS") || Deno.env.get("ADMIN_EMAIL") || "")
+  .split(/[,;\n]/)
+  .map((email) => email.trim().toLowerCase())
+  .filter(Boolean)
 const geocoderUserAgent = () => `MiaoliBulkyWaste/1.0 (contact: ${String(Deno.env.get("NOMINATIM_CONTACT") || "admin")})`
 
 export default {
@@ -80,7 +85,8 @@ export default {
     // 其餘操作皆需要登入的 Supabase 管理員。
     const bearer = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") || ""
     const { data: userResult, error: authError } = await ctx.supabaseAdmin.auth.getUser(bearer)
-    if (!adminEmail() || authError || userResult.user?.email?.toLowerCase() !== adminEmail()) return error("管理員權限不足", 403)
+    const permittedAdminEmails = adminEmails()
+    if (!permittedAdminEmails.length || authError || !permittedAdminEmails.includes(userResult.user?.email?.toLowerCase() || "")) return error("管理員權限不足", 403)
     if (action === "createPhoneCase") {
       const applicant = String(body.applicant || "").trim(), phone = String(body.phone || "").trim(), address = String(body.address || "").trim(), wasteType = String(body.wasteType || "").trim()
       if (!applicant || !phone || !address || !wasteType) return error("請完整填寫申請人、電話、地址與清運品項")
@@ -229,17 +235,23 @@ export default {
     if (action === "upsert") {
       const item = body.case as Record<string, unknown>
       if (!item?.case_no) return error("案件編號不可空白")
-      // 以同一地址、同一建立年度的非取消案件為準：前 3 次申請各有前 2 件免費。
+      // 同一地址、同一建立年度最多有 3 次申請機會與合計 6 件免費額度。
+      // 已取消案件不計入；免費額度以先前人工核可（或已完成）的件數累計。
       let caseToSave = item
       if (item.quantity_review_status === "人工已核可") {
         const address = String(item.address || "").trim()
         const year = new Date(String(item.created_at || Date.now())).getFullYear()
-        const { data: addressCases, error: countError } = await ctx.supabaseAdmin.from("cases").select("case_no,created_at,status").eq("address", address)
+        const { data: addressCases, error: countError } = await ctx.supabaseAdmin.from("cases").select("case_no,created_at,status,quantity,quantity_review_status").eq("address", address)
         if (countError) return error(countError.message, 500)
         const annualCases = (addressCases || []).filter((entry) => entry.status !== "已取消" && new Date(entry.created_at || Date.now()).getFullYear() === year).sort((first, second) => String(first.created_at || "").localeCompare(String(second.created_at || "")) || String(first.case_no || "").localeCompare(String(second.case_no || "")))
         const annualCount = Math.max(1, annualCases.findIndex((entry) => entry.case_no === item.case_no) + 1)
         const quantity = Math.max(0, Number(item.quantity || 0))
-        const chargeableQuantity = annualCount <= 3 ? Math.max(0, quantity - 2) : quantity
+        const currentIndex = annualCases.findIndex((entry) => entry.case_no === item.case_no)
+        const freeUsed = annualCases.slice(0, currentIndex < 0 ? annualCases.length : currentIndex)
+          .filter((entry) => entry.quantity_review_status === "人工已核可" || entry.status === "清運完成")
+          .reduce((total, entry) => total + Math.max(0, Number(entry.quantity || 0)), 0)
+        const freeQuantity = annualCount <= 3 ? Math.min(quantity, Math.max(0, 6 - freeUsed)) : 0
+        const chargeableQuantity = quantity - freeQuantity
         caseToSave = { ...item, annual_count: annualCount, chargeable_quantity: chargeableQuantity, fee_amount: chargeableQuantity * 200 }
       }
       const { error: dbError } = await ctx.supabaseAdmin.from("cases").upsert(caseToSave, { onConflict: "case_no" })

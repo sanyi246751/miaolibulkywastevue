@@ -18,7 +18,7 @@
 - 選擇清運品項、數量、希望日期與時段。
 - 上傳待清運照片。
 - 依預約單號與電話查詢案件進度。
-- 每戶每年度最多 3 次免費申請；每次 2 件內免費，超過部分每件 NT$200。
+- 每戶每年度最多 3 次免費申請，全年合計 6 件免費；超過免費件數或第 4 次起，每件 NT$200。
 
 ### 管理端
 
@@ -69,7 +69,7 @@ Vue 3 + Vite + Tailwind CSS
 ## 重要規則
 
 - 同一完整地址、同一年度的非取消案件，依建立時間排序計算年度申請次數。
-- 前 3 次申請，每次人工核可後前 2 件免費；第 4 次起全部計費。
+- 前 3 次申請共可使用 6 件免費額度；累計已核可／完成 6 件或第 4 次起，全部計費。
 - 路線結果優先使用 OSRM；道路服務無法取得路線時，使用直線距離 × 1.35 的預估值並顯示提示。
 - `0,0` 或無效座標會重新定位；門牌未收錄時會嘗試同一路段定位。
 - 同班次路線里程及碳排只在第一筆結案案件寫入資料庫一次。
@@ -107,10 +107,12 @@ VITE_SUPABASE_PUBLISHABLE_KEY=YOUR_PUBLISHABLE_KEY
 Edge Function 的私有設定請以 Supabase Secrets 保存：
 
 ```powershell
-npx supabase secrets set ADMIN_EMAIL=管理員Email NOMINATIM_CONTACT=定位服務聯絡資訊 --project-ref YOUR_PROJECT_REF
+npx supabase secrets set ADMIN_EMAILS="existing-admin@example.com,new-admin@example.com" NOMINATIM_CONTACT=定位服務聯絡資訊 --project-ref YOUR_PROJECT_REF
 ```
 
-不要將管理員 email、Access Token、Service Role Key 寫入程式碼或公開版本庫。
+先在 Supabase Dashboard 的 **Authentication → Users → Add user** 建立新管理員的 Email 與密碼，再把新 Email 加入 `ADMIN_EMAILS`（多位帳號以逗號分隔），最後重新部署 `case-api`。系統仍相容舊的單一 `ADMIN_EMAIL` 設定。
+
+不要將管理員密碼、Access Token、Service Role Key 寫入程式碼或公開版本庫。
 
 ## Supabase 部署
 
