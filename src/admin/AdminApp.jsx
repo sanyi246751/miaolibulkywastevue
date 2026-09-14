@@ -83,6 +83,8 @@ export default function AdminApp() {
   const [vehicleSettings, setVehicleSettings] = useState([])
   const [workerSettings, setWorkerSettings] = useState([])
   const [routeOriginSettings, setRouteOriginSettings] = useState('24.380891,120.734372')
+  const [googleDriveEnabled, setGoogleDriveEnabled] = useState(false)
+  const [googleDriveWebAppUrl, setGoogleDriveWebAppUrl] = useState('')
   const [routeCache, setRouteCache] = useState({})
   const [workerSelections, setWorkerSelections] = useState([''])
   const [scheduleEditing, setScheduleEditing] = useState(false)
@@ -114,6 +116,8 @@ export default function AdminApp() {
     setVehicleSettings(vehicles.map((item) => ({ ...item })))
     setWorkerSettings([...workers])
     setRouteOriginSettings(routeOrigin)
+    setGoogleDriveEnabled(Boolean(options.google_drive_enabled))
+    setGoogleDriveWebAppUrl(String(options.google_drive_web_app_url || ''))
   }
 
   useEffect(() => {
@@ -153,7 +157,7 @@ export default function AdminApp() {
       if (!fileId) return null
       try {
         const result = await adminPost('getImage', { fileId })
-        return { id: fileId, index, src: `data:image/jpeg;base64,${result.base64}` }
+        return { id: fileId, index, src: `data:${result.mimeType || 'image/jpeg'};base64,${result.base64}` }
       } catch {
         return { id: fileId, index, error: true }
       }
@@ -317,7 +321,7 @@ export default function AdminApp() {
     if (new Set(vehicles.map((item) => item.vehicle_no)).size !== vehicles.length) return setMessage('派車資料有重複的車號')
     if (new Set(workers).size !== workers.length) return setMessage('清運人員名單有重複姓名')
     setLoading(true); setMessage('')
-    try { await adminPost('updateDispatchOptions', { vehicles, workers, routeOrigin: routeOriginSettings }); await loadDispatchOptions(); setMessage('系統設定已儲存，排班選單與清運出發點已同步更新') }
+    try { await adminPost('updateDispatchOptions', { vehicles, workers, routeOrigin: routeOriginSettings, googleDriveEnabled, googleDriveWebAppUrl }); await loadDispatchOptions(); setMessage('系統設定已儲存，排班選單、出發點與照片儲存設定已同步更新') }
     catch (error) { setMessage(error.message) } finally { setLoading(false) }
   }
 

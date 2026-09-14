@@ -9,7 +9,29 @@ import { withSupabase } from "@supabase/server"
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, apikey, content-type", "Access-Control-Allow-Methods": "POST, OPTIONS" }
 const reply = (body: unknown, status = 200) => Response.json(body, { status, headers: cors })
 const error = (message: string, status = 400) => reply({ ok: false, message }, status)
-const caseNo = () => { const d = new Date(); return `${d.getFullYear() - 1911}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}-${crypto.randomUUID().slice(0, 8).toUpperCase()}` }
+const caseNo = async (supabase: { rpc: (name: string) => Promise<{ data: string | null, error: { message: string } | null }> }) => {
+  const { data, error: rpcError } = await supabase.rpc("next_case_no")
+  if (rpcError || !data) throw new Error(rpcError?.message || "無法產生預約單號")
+  return data
+}
+const driveRequest = async (supabase: { from: (table: string) => any }, payload: Record<string, unknown>) => {
+  const { data: settings, error: settingsError } = await supabase.from("system_settings").select("setting_key,setting_value").in("setting_key", ["google_drive_enabled", "google_drive_web_app_url"])
+  if (settingsError) throw new Error("無法讀取 Google Drive 設定")
+  const config = Object.fromEntries((settings || []).map((item: { setting_key: string, setting_value: string }) => [item.setting_key, item.setting_value]))
+  if (config.google_drive_enabled !== "true") throw new Error("Google Drive 照片服務尚未啟用")
+  const url = String(config.google_drive_web_app_url || Deno.env.get("GOOGLE_DRIVE_WEB_APP_URL") || "").trim()
+  const token = String(Deno.env.get("GOOGLE_DRIVE_WEB_APP_TOKEN") || "").trim()
+  if (!url || !token) throw new Error("Google Drive 照片服務尚未設定")
+  const response = await fetch(url, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ ...payload, token }) })
+  const result = await response.json().catch(() => ({}))
+  if (!response.ok || !result.ok) throw new Error(String(result.message || "Google Drive 照片服務發生錯誤"))
+  return result as { fileId?: string, base64?: string, mimeType?: string }
+}
+const uploadDrivePhoto = async (supabase: { from: (table: string) => any }, caseNo: string, fileName: string, mimeType: string, base64: string) => {
+  const result = await driveRequest(supabase, { action: "upload", caseNo, fileName, mimeType, base64 })
+  if (!result.fileId) throw new Error("Google Drive 未回傳檔案識別碼")
+  return `drive:${result.fileId}`
+}
 // `ADMIN_EMAILS` 支援以逗號或分號設定多位管理員；保留舊的
 // `ADMIN_EMAIL`，讓既有部署不必立刻調整。
 const adminEmails = () => String(Deno.env.get("ADMIN_EMAILS") || Deno.env.get("ADMIN_EMAIL") || "")
@@ -31,8 +53,9 @@ export default {
       const suppliedAddress = String(body.address || "").trim()
       const address = suppliedAddress || `${county}${district}${addressDetail}`
       if (!applicant || !phone || !county || !district || !addressDetail || !address || !wasteType) return error("請完整填寫申請資料")
-      const no = caseNo()
-      // 民眾照片經 Edge Function 寫入私有 Storage，只在案件資料保存路徑，不公開原始檔。
+      let no: string
+      try { no = await caseNo(ctx.supabaseAdmin) } catch (numberError) { return error(numberError instanceof Error ? numberError.message : "無法產生預約單號", 500) }
+      // 民眾照片由 Edge Function 轉送至 Google Drive；資料庫只保存 Drive 檔案 ID。
       const inputs = Array.isArray(body.photos) ? body.photos : body.photo ? [body.photo] : []
       if (inputs.length > 8) return error("待清運照片最多上傳 8 張")
       const photoPaths: string[] = []
@@ -44,11 +67,7 @@ export default {
         let bytes: Uint8Array
         try { bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0)) } catch { return error("待清運照片內容不正確") }
         if (!bytes.length || bytes.length > 8 * 1024 * 1024) return error("每張待清運照片須介於 1 B 至 8 MB")
-        const name = String(photo.name || `photo-${index + 1}.jpg`).replace(/[^\w.-]/g, "_")
-        const path = `public/${no}-${index + 1}-${name}`
-        const { error: uploadError } = await ctx.supabaseAdmin.storage.from("case-photos").upload(path, bytes, { contentType: mimeType, upsert: false })
-        if (uploadError) return error(`待清運照片上傳失敗：${uploadError.message}`, 500)
-        photoPaths.push(path)
+        try { photoPaths.push(await uploadDrivePhoto(ctx.supabaseAdmin, no, `${no}-${index + 1}.jpg`, mimeType, base64)) } catch (uploadError) { return error(`待清運照片上傳失敗：${uploadError instanceof Error ? uploadError.message : "未知錯誤"}`, 500) }
       }
       const { error: dbError } = await ctx.supabaseAdmin.from("cases").insert({ case_no: no, applicant, phone, address, waste_type: wasteType, quantity: Math.max(1, Number(body.quantity || 1)), status: "待處理", requested_scheduled_at: body.preferredDate ? `${body.preferredDate}T00:00:00+08:00` : null, dispatch_period: String(body.preferredTimeSlot || ""), dispatch_note: String(body.locationNote || ""), email: String(body.email || "") || null, photo_paths: photoPaths })
       return dbError ? error(dbError.message, 500) : reply({ ok: true, caseNo: no })
@@ -65,6 +84,8 @@ export default {
       const pin = String(body.pin || ""), caseId = String(body.caseId || "")
       const { data: validPin, error: pinError } = await ctx.supabaseAdmin.rpc("verify_worker_pin", { p_pin: pin })
       if (pinError || !validPin) return error("工作人員驗證碼不正確", 401)
+      const { data: caseRecord, error: caseError } = await ctx.supabaseAdmin.from("cases").select("case_no").eq("id", caseId).single()
+      if (caseError || !caseRecord?.case_no) return error("找不到案件資料", 404)
       const photoPaths: string[] = []
       const files = Array.isArray(body.files) ? body.files.slice(0, 2) : []
       for (const [index, input] of files.entries()) {
@@ -72,11 +93,7 @@ export default {
         if (!base64 || !mimeType.startsWith("image/")) return error("結案照片格式不正確")
         let bytes: Uint8Array; try { bytes = Uint8Array.from(atob(base64), (value) => value.charCodeAt(0)) } catch { return error("結案照片內容不正確") }
         if (!bytes.length || bytes.length > 8 * 1024 * 1024) return error("每張結案照片須介於 1 B 至 8 MB")
-        const name = String(file.fileName || `finish-${index + 1}.jpg`).replace(/[^\w.-]/g, "_")
-        const path = `worker/${caseId}-${Date.now()}-${index + 1}-${name}`
-        const { error: uploadError } = await ctx.supabaseAdmin.storage.from("case-photos").upload(path, bytes, { contentType: mimeType, upsert: false })
-        if (uploadError) return error(`結案照片上傳失敗：${uploadError.message}`, 500)
-        photoPaths.push(path)
+        try { photoPaths.push(await uploadDrivePhoto(ctx.supabaseAdmin, caseRecord.case_no, `${caseRecord.case_no}-finish-${index + 1}.jpg`, mimeType, base64)) } catch (uploadError) { return error(`結案照片上傳失敗：${uploadError instanceof Error ? uploadError.message : "未知錯誤"}`, 500) }
       }
       const { error: dbError } = await ctx.supabaseAdmin.rpc("worker_complete_case", { p_pin: pin, p_case_id: caseId, p_note: String(body.note || ""), p_photo_paths: photoPaths })
       return dbError ? error(dbError.message, 400) : reply({ ok: true })
@@ -90,8 +107,20 @@ export default {
     if (action === "createPhoneCase") {
       const applicant = String(body.applicant || "").trim(), phone = String(body.phone || "").trim(), address = String(body.address || "").trim(), wasteType = String(body.wasteType || "").trim()
       if (!applicant || !phone || !address || !wasteType) return error("請完整填寫申請人、電話、地址與清運品項")
-      const no = caseNo()
-      const { error: dbError } = await ctx.supabaseAdmin.from("cases").insert({ case_no: no, applicant, phone, email: String(body.email || "") || null, address, waste_type: wasteType, quantity: Math.max(1, Number(body.quantity || 1)), status: "待處理", requested_scheduled_at: body.preferredDate ? `${body.preferredDate}T00:00:00+08:00` : null, dispatch_period: String(body.preferredTimeSlot || ""), dispatch_note: String(body.note || ""), photo_paths: Array.isArray(body.photoPaths) ? body.photoPaths : [], report_source: "電話申請" })
+      let no: string
+      try { no = await caseNo(ctx.supabaseAdmin) } catch (numberError) { return error(numberError instanceof Error ? numberError.message : "無法產生預約單號", 500) }
+      const inputs = Array.isArray(body.photos) ? body.photos : []
+      if (inputs.length > 8) return error("待清運照片最多上傳 8 張")
+      const photoPaths: string[] = []
+      for (const [index, input] of inputs.entries()) {
+        const photo = input as Record<string, unknown>, mimeType = String(photo.mimeType || "image/jpeg"), base64 = String(photo.base64 || "")
+        if (!mimeType.startsWith("image/") || !base64) return error("待清運照片格式不正確")
+        let bytes: Uint8Array
+        try { bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0)) } catch { return error("待清運照片內容不正確") }
+        if (!bytes.length || bytes.length > 8 * 1024 * 1024) return error("每張待清運照片須介於 1 B 至 8 MB")
+        try { photoPaths.push(await uploadDrivePhoto(ctx.supabaseAdmin, no, `${no}-${index + 1}.jpg`, mimeType, base64)) } catch (uploadError) { return error(`待清運照片上傳失敗：${uploadError instanceof Error ? uploadError.message : "未知錯誤"}`, 500) }
+      }
+      const { error: dbError } = await ctx.supabaseAdmin.from("cases").insert({ case_no: no, applicant, phone, email: String(body.email || "") || null, address, waste_type: wasteType, quantity: Math.max(1, Number(body.quantity || 1)), status: "待處理", requested_scheduled_at: body.preferredDate ? `${body.preferredDate}T00:00:00+08:00` : null, dispatch_period: String(body.preferredTimeSlot || ""), dispatch_note: String(body.note || ""), photo_paths: photoPaths, report_source: "電話申請" })
       return dbError ? error(dbError.message, 500) : reply({ ok: true, caseNo: no })
     }
     if (action === "upload") {
@@ -114,6 +143,13 @@ export default {
     if (action === "getImage") {
       const path = String(body.fileId || "")
       if (!path || path.includes("..")) return error("照片路徑不正確")
+      if (path.startsWith("drive:")) {
+        try {
+          const result = await driveRequest(ctx.supabaseAdmin, { action: "get", fileId: path.slice("drive:".length) })
+          if (!result.base64) return error("Google Drive 未回傳照片內容", 404)
+          return reply({ ok: true, base64: result.base64, mimeType: result.mimeType || "image/jpeg" })
+        } catch (driveError) { return error(driveError instanceof Error ? driveError.message : "無法讀取 Google Drive 照片", 404) }
+      }
       const { data, error: downloadError } = await ctx.supabaseAdmin.storage.from("case-photos").download(path)
       if (downloadError || !data) return error(downloadError?.message || "找不到照片", 404)
       const bytes = new Uint8Array(await data.arrayBuffer())
@@ -148,13 +184,16 @@ export default {
       return dbError ? error(dbError.message, 500) : reply({ ok: true })
     }
     if (action === "dispatchOptions") {
-      const [{ data: vehicles, error: vehicleError }, { data: workers, error: workerError }, { data: settings, error: settingsError }] = await Promise.all([ctx.supabaseAdmin.from("vehicles").select("vehicle_no,fuel_efficiency,co2_per_liter").eq("active", true).order("vehicle_no"), ctx.supabaseAdmin.from("workers").select("name").eq("active", true).order("name"), ctx.supabaseAdmin.from("system_settings").select("setting_key,setting_value").eq("setting_key", "route_origin")])
-      return vehicleError || workerError || settingsError ? error(vehicleError?.message || workerError?.message || settingsError?.message || "讀取派車設定失敗", 500) : reply({ ok: true, dispatch: { vehicles: vehicles || [], workers: (workers || []).map((item) => item.name), route_origin: settings?.[0]?.setting_value || "24.380891,120.734372" } })
+      const [{ data: vehicles, error: vehicleError }, { data: workers, error: workerError }, { data: settings, error: settingsError }] = await Promise.all([ctx.supabaseAdmin.from("vehicles").select("vehicle_no,fuel_efficiency,co2_per_liter").eq("active", true).order("vehicle_no"), ctx.supabaseAdmin.from("workers").select("name").eq("active", true).order("name"), ctx.supabaseAdmin.from("system_settings").select("setting_key,setting_value").in("setting_key", ["route_origin", "google_drive_enabled", "google_drive_web_app_url"])])
+      const config = Object.fromEntries((settings || []).map((item) => [item.setting_key, item.setting_value]))
+      return vehicleError || workerError || settingsError ? error(vehicleError?.message || workerError?.message || settingsError?.message || "讀取系統設定失敗", 500) : reply({ ok: true, dispatch: { vehicles: vehicles || [], workers: (workers || []).map((item) => item.name), route_origin: config.route_origin || "24.380891,120.734372", google_drive_enabled: config.google_drive_enabled === "true", google_drive_web_app_url: config.google_drive_web_app_url || "" } })
     }
     if (action === "updateDispatchOptions") {
       const vehicles = Array.isArray(body.vehicles) ? body.vehicles : []
       const workers = Array.isArray(body.workers) ? body.workers : []
       const routeOrigin = String(body.routeOrigin || "24.380891,120.734372").trim()
+      const googleDriveEnabled = body.googleDriveEnabled === true ? "true" : "false"
+      const googleDriveWebAppUrl = String(body.googleDriveWebAppUrl || "").trim()
       const originValues = routeOrigin.split(",").map(Number)
       if (originValues.length !== 2 || originValues.some((value) => !Number.isFinite(value)) || Math.abs(originValues[0]) > 90 || Math.abs(originValues[1]) > 180) return error("出發點請填寫正確的緯度,經度")
       const vehicleRows = vehicles.map((item: any) => ({ vehicle_no: String(item.vehicle_no || item).trim(), fuel_efficiency: Number(item.fuel_efficiency || 5), co2_per_liter: Number(item.co2_per_liter || 2.69), active: true })).filter((item) => item.vehicle_no)
@@ -163,8 +202,9 @@ export default {
       const { error: disableWorkerError } = await ctx.supabaseAdmin.from("workers").update({ active: false }).eq("active", true)
       const vehicleResult = vehicleRows.length ? await ctx.supabaseAdmin.from("vehicles").upsert(vehicleRows, { onConflict: "vehicle_no" }) : { error: null }
       const workerResult = workerRows.length ? await ctx.supabaseAdmin.from("workers").upsert(workerRows, { onConflict: "name" }) : { error: null }
-      const originResult = await ctx.supabaseAdmin.from("system_settings").upsert({ setting_key: "route_origin", setting_value: routeOrigin, updated_at: new Date().toISOString() }, { onConflict: "setting_key" })
-      const saveError = disableVehicleError || disableWorkerError || vehicleResult.error || workerResult.error || originResult.error
+      if (googleDriveEnabled && !/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(googleDriveWebAppUrl)) return error("請輸入有效的 Google Apps Script Web App /exec 網址")
+      const settingsResult = await ctx.supabaseAdmin.from("system_settings").upsert([{ setting_key: "route_origin", setting_value: routeOrigin, updated_at: new Date().toISOString() }, { setting_key: "google_drive_enabled", setting_value: googleDriveEnabled, updated_at: new Date().toISOString() }, { setting_key: "google_drive_web_app_url", setting_value: googleDriveWebAppUrl, updated_at: new Date().toISOString() }], { onConflict: "setting_key" })
+      const saveError = disableVehicleError || disableWorkerError || vehicleResult.error || workerResult.error || settingsResult.error
       return saveError ? error(saveError.message || "儲存派車設定失敗", 500) : reply({ ok: true })
     }
     if (action === "calculateRoute") {
