@@ -193,12 +193,19 @@ export default {
     if (action === "createPhoneCase") {
       const applicant = String(body.applicant || "").trim(), phone = String(body.phone || "").trim(), address = String(body.address || "").trim(), wasteType = String(body.wasteType || "").trim()
       if (!applicant || !phone || !address || !wasteType) return error("請完整填寫申請人、電話、地址與清運品項")
-      let no: string
-      try { no = await caseNo(ctx.supabaseAdmin) } catch (numberError) { return error(numberError instanceof Error ? numberError.message : "無法產生預約單號", 500) }
+      const uploadSessionId = String(body.uploadSessionId || "")
+      let no: string, photoPaths: string[] = []
+      if (uploadSessionId) {
+        const { data: session, error: sessionError } = await ctx.supabaseAdmin.from("photo_upload_sessions").select("case_no,photo_paths,expires_at").eq("id", uploadSessionId).single()
+        if (sessionError || !session || new Date(session.expires_at).getTime() < Date.now()) return error("照片上傳工作階段已失效，請重新送出", 400)
+        no = session.case_no
+        photoPaths = Array.isArray(session.photo_paths) ? session.photo_paths.map(String) : []
+      } else {
+        try { no = await caseNo(ctx.supabaseAdmin) } catch (numberError) { return error(numberError instanceof Error ? numberError.message : "無法產生預約單號", 500) }
+      }
       const inputs = Array.isArray(body.photos) ? body.photos : []
       if (inputs.length > 8) return error("待清運照片最多上傳 8 張")
-      const photoPaths: string[] = []
-      for (const [index, input] of inputs.entries()) {
+      for (const [index, input] of uploadSessionId ? [].entries() : inputs.entries()) {
         const photo = input as Record<string, unknown>, mimeType = String(photo.mimeType || "image/jpeg"), base64 = String(photo.base64 || "")
         if (!mimeType.startsWith("image/") || !base64) return error("待清運照片格式不正確")
         let bytes: Uint8Array
@@ -207,6 +214,11 @@ export default {
         try { photoPaths.push(await uploadDrivePhoto(ctx.supabaseAdmin, no, `${no}-${index + 1}.jpg`, mimeType, base64)) } catch (uploadError) { return error(`待清運照片上傳失敗：${uploadError instanceof Error ? uploadError.message : "未知錯誤"}`, 500) }
       }
       const { error: dbError } = await ctx.supabaseAdmin.from("cases").insert({ case_no: no, applicant, phone, email: String(body.email || "") || null, address, waste_type: wasteType, quantity: Math.max(1, Number(body.quantity || 1)), status: "待處理", requested_scheduled_at: body.preferredDate ? `${body.preferredDate}T00:00:00+08:00` : null, dispatch_period: String(body.preferredTimeSlot || ""), dispatch_note: String(body.note || ""), photo_paths: photoPaths, report_source: "電話申請" })
+      if (!dbError && uploadSessionId) {
+        await ctx.supabaseAdmin.from("photo_sync_jobs").insert(photoPaths.map((storagePath, index) => ({ case_no: no, storage_path: storagePath, target_file_name: `${no}-${index + 1}.jpg`, photo_kind: "pending" })))
+        await ctx.supabaseAdmin.from("photo_upload_sessions").delete().eq("id", uploadSessionId)
+        EdgeRuntime.waitUntil(syncCasePhotos(ctx.supabaseAdmin, no))
+      }
       return dbError ? error(dbError.message, 500) : reply({ ok: true, caseNo: no })
     }
     if (action === "upload") {
