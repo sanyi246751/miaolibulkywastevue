@@ -272,7 +272,7 @@ export default function BookingView(props) {
                       申請聲明與同意事項 (必填)
                     </h3>
                     <p className="text-xs text-slate-400 mt-1 ml-10">
-                      依廢棄物清理法及清潔隊規定，請完整閱讀以下事項後勾選同意。
+                      送出申請前，請確認服務範圍、年度免費額度、計費及物品放置規定，並完整閱讀後勾選同意。
                     </p>
                   </div>
 
