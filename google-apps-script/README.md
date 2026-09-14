@@ -11,4 +11,4 @@ npx supabase secrets set GOOGLE_DRIVE_WEB_APP_URL="https://script.google.com/mac
 npx supabase functions deploy case-api
 ```
 
-網址與密鑰不可放到前端。新照片會存成 Drive 子資料夾 `案件單號/檔名.jpg`；Supabase 資料庫只保存 `drive:<檔案ID>`，既有 Supabase Storage 照片仍可正常讀取。
+網址與密鑰不可放到前端。新照片會存成 Drive 子資料夾 `年度/月份/案件單號/檔名.jpg`，例如 `115/09/115-0914-001/115-0914-001-1.jpg`；Supabase 資料庫只保存 `drive:<檔案ID>`，既有 Supabase Storage 照片仍可正常讀取。

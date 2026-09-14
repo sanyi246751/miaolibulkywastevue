@@ -26,8 +26,11 @@ function upload_(request, properties) {
   const rootId = properties.getProperty('DRIVE_ROOT_FOLDER_ID');
   if (!rootId) throw new Error('尚未設定 Google Drive 根資料夾');
   const root = DriveApp.getFolderById(rootId);
-  const folders = root.getFoldersByName(caseNo);
-  const folder = folders.hasNext() ? folders.next() : root.createFolder(caseNo);
+  const [, year, month] = caseNo.match(/^(\d{3})-(\d{2})\d{2}-\d{3,}$/) || [];
+  if (!year || !month) throw new Error('預約單號格式不正確');
+  const yearFolder = getOrCreateFolder_(root, year);
+  const monthFolder = getOrCreateFolder_(yearFolder, month);
+  const folder = getOrCreateFolder_(monthFolder, caseNo);
   const file = folder.createFile(Utilities.newBlob(Utilities.base64Decode(base64), mimeType, fileName));
   return respond_({ ok: true, fileId: file.getId() });
 }
@@ -37,6 +40,11 @@ function get_(request) {
   if (!fileId) throw new Error('缺少檔案 ID');
   const blob = DriveApp.getFileById(fileId).getBlob();
   return respond_({ ok: true, base64: Utilities.base64Encode(blob.getBytes()), mimeType: blob.getContentType() || 'image/jpeg' });
+}
+
+function getOrCreateFolder_(parent, name) {
+  const folders = parent.getFoldersByName(name);
+  return folders.hasNext() ? folders.next() : parent.createFolder(name);
 }
 
 function respond_(value) {
