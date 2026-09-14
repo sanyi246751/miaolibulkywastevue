@@ -265,15 +265,16 @@ export default {
       // 開啟資料庫檢視時，順便重試先前被中斷的照片同步工作。
       const { data: pendingJobs } = await ctx.supabaseAdmin.from("photo_sync_jobs").select("case_no").in("status", ["pending", "failed", "syncing"]).limit(20)
       for (const caseNo of [...new Set((pendingJobs || []).map((job) => String(job.case_no)))]) await syncCasePhotos(ctx.supabaseAdmin, caseNo)
-      const [casesResult, vehiclesResult, workersResult, settingsResult, historyResult] = await Promise.all([
+      const [casesResult, vehiclesResult, workersResult, settingsResult, historyResult, photoSyncResult] = await Promise.all([
         ctx.supabaseAdmin.from("cases").select("*").order("created_at", { ascending: false }),
         ctx.supabaseAdmin.from("vehicles").select("*").order("vehicle_no"),
         ctx.supabaseAdmin.from("workers").select("*").order("name"),
         ctx.supabaseAdmin.from("system_settings").select("*").order("setting_key"),
         ctx.supabaseAdmin.from("case_history").select("*").order("created_at", { ascending: false }),
+        ctx.supabaseAdmin.from("photo_sync_jobs").select("*").order("created_at", { ascending: false }),
       ])
-      const dbError = casesResult.error || vehiclesResult.error || workersResult.error || settingsResult.error || historyResult.error
-      return dbError ? error(dbError.message, 500) : reply({ ok: true, database: { cases: casesResult.data || [], vehicles: vehiclesResult.data || [], workers: workersResult.data || [], system_settings: settingsResult.data || [], case_history: historyResult.data || [] } })
+      const dbError = casesResult.error || vehiclesResult.error || workersResult.error || settingsResult.error || historyResult.error || photoSyncResult.error
+      return dbError ? error(dbError.message, 500) : reply({ ok: true, database: { cases: casesResult.data || [], vehicles: vehiclesResult.data || [], workers: workersResult.data || [], system_settings: settingsResult.data || [], case_history: historyResult.data || [], photo_sync_jobs: photoSyncResult.data || [] } })
     }
     if (action === "databaseDelete") {
       const table = String(body.table || ""), allowed = ["cases", "vehicles", "workers", "system_settings", "case_history"]
