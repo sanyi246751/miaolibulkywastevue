@@ -34,6 +34,35 @@ export default function DatabaseViewer({ cases, getMinguoTime }) {
     })
     return () => removers.forEach((remove) => remove())
   }, [table, selected, draggingKey])
+  useEffect(() => {
+    if (table !== 'cases') return
+    const photoColumns = columns.map(([key], index) => ['photo_paths', 'completion_photo_paths'].includes(key) ? index + 1 : -1).filter((index) => index > 0)
+    if (!photoColumns.length) return
+    const rows = [...document.querySelectorAll('tbody tr')]
+    rows.forEach((row, rowIndex) => {
+      const item = records[rowIndex]
+      if (!item) return
+      photoColumns.forEach(async (cellIndex) => {
+        const key = columns[cellIndex - 1]?.[0], cell = row.children[cellIndex]
+        if (!cell || !key) return
+        const photoIds = Array.isArray(item[key]) ? item[key] : (() => { try { return JSON.parse(item[key] || '[]') } catch { return [] } })()
+        cell.replaceChildren()
+        if (!photoIds.length) { cell.textContent = '—'; return }
+        const gallery = document.createElement('div'); gallery.className = 'flex min-w-[72px] gap-1'
+        cell.append(gallery)
+        for (const photo of photoIds) {
+          const fileId = typeof photo === 'string' ? photo : photo?.fileId || photo?.path
+          if (!fileId) continue
+          try {
+            const result = await adminPost('getImage', { fileId })
+            const image = document.createElement('img'); image.src = `data:${result.mimeType || 'image/jpeg'};base64,${result.base64}`; image.className = 'h-12 w-12 cursor-zoom-in rounded-md border object-cover'; image.title = '點選放大照片'
+            image.onclick = () => { const popup = window.open('', '_blank', 'noopener,noreferrer'); if (popup) popup.document.write(`<title>案件照片</title><img src="${image.src}" style="max-width:100%;height:auto;display:block;margin:auto">`) }
+            gallery.append(image)
+          } catch { const failed = document.createElement('span'); failed.className = 'text-xs text-rose-600'; failed.textContent = '讀取失敗'; gallery.append(failed) }
+        }
+      })
+    })
+  }, [table, database, keyword, period, dateFrom, dateTo, selected])
   const value = (item, key) => { if (['requested_scheduled_at','scheduled_at','created_at','updated_at'].includes(key)) return getMinguoTime(item[key]); if (key === 'fee_amount') return `NT$ ${Number(item[key] || 0).toLocaleString()}`; if (key === 'photo_paths' || key === 'completion_photo_paths') { try { return `${JSON.parse(item[key] || '[]').length} 張` } catch { return '0 張' } }; const raw = item[key]; return raw == null ? '—' : typeof raw === 'object' ? JSON.stringify(raw) : raw }
   const exportCsv = () => { if (!columns.length) return; const cell = (v) => `"${String(v ?? '').replaceAll('"','""')}"`, csv = '\ufeff' + [columns.map(([,label]) => cell(label)).join(','),...records.map((item) => columns.map(([key]) => cell(value(item,key))).join(','))].join('\r\n'), url = URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'})), link = document.createElement('a'); link.href=url; link.download=`${tables.find(([key])=>key===table)?.[1]}_${today}.csv`; link.click(); URL.revokeObjectURL(url) }
   const remove = async (item) => { const keyValue = table === 'cases' ? item.case_no : table === 'system_settings' ? item.setting_key : item.id; if (!keyValue || !window.confirm('確定刪除這筆資料嗎？此動作無法復原。')) return; try { await adminPost('databaseDelete',{table,keyValue}); setDatabase((old) => ({...old,[table]:(old[table] || []).filter((row) => (table === 'cases' ? row.case_no : table === 'system_settings' ? row.setting_key : row.id) !== keyValue)})) } catch (error) { window.alert(`刪除失敗：${error.message}`) } }
