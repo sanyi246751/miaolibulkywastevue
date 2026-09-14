@@ -302,13 +302,13 @@ export default function BookingView(props) {
                     role="checkbox"
                     aria-checked={isAllTermsAgreed}
                     onClick={() => setAgreedTerms(isAllTermsAgreed ? [] : TERMS_LIST.map(t => t.id))}
-                    className={`flex w-full items-start gap-3 rounded-xl border p-4 text-left transition-all ${
+                    className={`flex w-full items-center gap-3 rounded-xl border p-4 text-left transition-all ${
                       isAllTermsAgreed
                         ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-800'
                         : 'border-slate-700/60 bg-white/60 text-slate-700 hover:border-emerald-400'
                     }`}
                   >
-                    <span className="mt-0.5 text-lg font-bold text-emerald-600">{isAllTermsAgreed ? '☑' : '☐'}</span>
+                    <span className="text-lg font-bold text-emerald-600">{isAllTermsAgreed ? '☑' : '☐'}</span>
                     <span className="text-sm font-bold">我已詳讀並同意配合以上事項 (閱讀後，請勾選)</span>
                   </button>
                 </div>
