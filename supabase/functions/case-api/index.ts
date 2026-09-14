@@ -33,7 +33,7 @@ const uploadDrivePhoto = async (supabase: { from: (table: string) => any }, case
   return `drive:${result.fileId}`
 }
 const syncCasePhotos = async (supabase: any, caseNo: string) => {
-  const { data: jobs } = await supabase.from("photo_sync_jobs").select("*").eq("case_no", caseNo).in("status", ["pending", "failed"]).order("id")
+  const { data: jobs } = await supabase.from("photo_sync_jobs").select("*").eq("case_no", caseNo).in("status", ["pending", "failed", "syncing"]).order("id")
   for (const job of jobs || []) {
     try {
       await supabase.from("photo_sync_jobs").update({ status: "syncing", attempts: Number(job.attempts || 0) + 1, updated_at: new Date().toISOString(), last_error: null }).eq("id", job.id)
@@ -262,6 +262,9 @@ export default {
     }
     if (action === "list") { const { data, error: dbError } = await ctx.supabaseAdmin.from("cases").select("*").order("created_at", { ascending: false }); return dbError ? error(dbError.message, 500) : reply({ ok: true, cases: data || [] }) }
     if (action === "databaseView") {
+      // 開啟資料庫檢視時，順便重試先前被中斷的照片同步工作。
+      const { data: pendingJobs } = await ctx.supabaseAdmin.from("photo_sync_jobs").select("case_no").in("status", ["pending", "failed", "syncing"]).limit(20)
+      for (const caseNo of [...new Set((pendingJobs || []).map((job) => String(job.case_no)))]) await syncCasePhotos(ctx.supabaseAdmin, caseNo)
       const [casesResult, vehiclesResult, workersResult, settingsResult, historyResult] = await Promise.all([
         ctx.supabaseAdmin.from("cases").select("*").order("created_at", { ascending: false }),
         ctx.supabaseAdmin.from("vehicles").select("*").order("vehicle_no"),
