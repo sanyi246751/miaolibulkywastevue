@@ -11,6 +11,7 @@ function doPost(e) {
     if (!request.token || request.token !== properties.getProperty('DRIVE_UPLOAD_TOKEN')) return respond_({ ok: false, message: '未授權' });
     if (request.action === 'upload') return upload_(request, properties);
     if (request.action === 'get') return get_(request);
+    if (request.action === 'share') return share_(request);
     return respond_({ ok: false, message: '不支援的操作' });
   } catch (err) {
     return respond_({ ok: false, message: err && err.message || '服務發生錯誤' });
@@ -37,7 +38,16 @@ function upload_(request, properties) {
   const monthFolder = getOrCreateFolder_(yearFolder, month);
   const folder = getOrCreateFolder_(monthFolder, caseNo);
   const file = folder.createFile(Utilities.newBlob(Utilities.base64Decode(base64), mimeType, fileName));
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
   return respond_({ ok: true, fileId: file.getId() });
+}
+
+function share_(request) {
+  const fileId = String(request.fileId || '');
+  if (!fileId) throw new Error('缺少檔案 ID');
+  const file = DriveApp.getFileById(fileId);
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  return respond_({ ok: true, fileId: fileId });
 }
 
 function get_(request) {

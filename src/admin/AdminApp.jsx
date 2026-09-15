@@ -172,6 +172,12 @@ export default function AdminApp() {
       const fileId = typeof photo === 'string' ? photo : photo?.fileId || photo?.path
       if (!fileId) return null
       try {
+        if (fileId.startsWith('drive:')) {
+          try {
+            const directResult = await adminPost('getDriveImageUrl', { fileId })
+            return { id: fileId, index, src: directResult.url, direct: true }
+          } catch { /* 舊 GAS 尚未部署 share 時改用安全的 Base64 轉送。 */ }
+        }
         const result = await adminPost('getImage', { fileId })
         return { id: fileId, index, src: `data:${result.mimeType || 'image/jpeg'};base64,${result.base64}` }
       } catch {

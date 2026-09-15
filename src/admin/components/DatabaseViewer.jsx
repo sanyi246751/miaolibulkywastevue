@@ -18,6 +18,13 @@ function PhotoCell({ value }) {
     popup.document.write('<title>照片讀取中</title><p style="font-family:sans-serif;text-align:center;padding:2rem">照片讀取中…</p>')
     try {
       setLoadingId(fileId)
+      if (fileId.startsWith('drive:')) {
+        try {
+          const directResult = await adminPost('getDriveImageUrl', { fileId })
+          popup.location.replace(directResult.url)
+          return
+        } catch { /* 舊 GAS 尚未部署 share 時改用安全的 Base64 轉送。 */ }
+      }
       const result = await adminPost('getImage', { fileId })
       const src = `data:${result.mimeType || 'image/jpeg'};base64,${result.base64}`
       popup.document.open()

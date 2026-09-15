@@ -307,6 +307,15 @@ export default {
       let binary = ""; for (const byte of bytes) binary += String.fromCharCode(byte)
       return reply({ ok: true, base64: btoa(binary) })
     }
+    if (action === "getDriveImageUrl") {
+      const path = String(body.fileId || "")
+      if (!path.startsWith("drive:") || path.length <= "drive:".length) return error("Google Drive 照片識別碼不正確")
+      const fileId = path.slice("drive:".length)
+      try {
+        await driveRequest(ctx.supabaseAdmin, { action: "share", fileId })
+        return reply({ ok: true, url: `https://drive.google.com/thumbnail?id=${encodeURIComponent(fileId)}&sz=w1600` })
+      } catch (driveError) { return error(driveError instanceof Error ? driveError.message : "無法取得 Google Drive 照片連結", 500) }
+    }
     if (action === "deleteImage") {
       const path = String(body.fileId || "")
       if (!path || path.includes("..") || !path.startsWith("desktop/")) return error("照片路徑不正確")
