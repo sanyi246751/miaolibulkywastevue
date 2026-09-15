@@ -8,11 +8,30 @@ const labels = {id:'資料識別碼',case_no:'預約單號',applicant:'申請人
 
 const photoList = (value) => Array.isArray(value) ? value : (() => { try { const parsed = JSON.parse(value || '[]'); return Array.isArray(parsed) ? parsed : [] } catch { return [] } })()
 function PhotoCell({ value }) {
-  const [photos, setPhotos] = useState([])
+  const [loadingId, setLoadingId] = useState('')
   const ids = photoList(value).map((photo) => typeof photo === 'string' ? photo : photo?.fileId || photo?.path).filter(Boolean)
-  useEffect(() => { let cancelled = false; Promise.all(ids.map(async (fileId) => { try { const result = await adminPost('getImage', { fileId }); return { fileId, src: `data:${result.mimeType || 'image/jpeg'};base64,${result.base64}` } } catch { return { fileId, failed: true } } })).then((next) => { if (!cancelled) setPhotos(next) }); return () => { cancelled = true } }, [JSON.stringify(ids)])
   if (!ids.length) return <span>—</span>
-  return <div className="flex min-w-[72px] gap-1">{photos.map((photo) => photo.failed ? <span key={photo.fileId} className="text-xs text-rose-600">讀取失敗</span> : <img key={photo.fileId} src={photo.src} className="h-12 w-12 cursor-zoom-in rounded-md border object-cover" title="點選放大照片" onClick={() => { const popup = window.open('', '_blank', 'noopener,noreferrer'); if (popup) popup.document.write(`<title>案件照片</title><img src="${photo.src}" style="max-width:100%;height:auto;display:block;margin:auto">`) }}/>)}</div>
+  const openPhoto = async (fileId, index) => {
+    const popup = window.open('', '_blank')
+    if (!popup) return window.alert('瀏覽器已封鎖新分頁，請允許此網站開啟彈出式視窗。')
+    popup.opener = null
+    popup.document.write('<title>照片讀取中</title><p style="font-family:sans-serif;text-align:center;padding:2rem">照片讀取中…</p>')
+    try {
+      setLoadingId(fileId)
+      const result = await adminPost('getImage', { fileId })
+      const src = `data:${result.mimeType || 'image/jpeg'};base64,${result.base64}`
+      popup.document.open()
+      popup.document.write(`<title>案件照片 ${index + 1}</title><body style="margin:0;background:#111"><img src="${src}" alt="案件照片 ${index + 1}" style="max-width:100%;height:auto;display:block;margin:auto"></body>`)
+      popup.document.close()
+    } catch {
+      popup.document.open()
+      popup.document.write('<title>照片讀取失敗</title><p style="font-family:sans-serif;text-align:center;padding:2rem">照片讀取失敗，請關閉此頁後重試。</p>')
+      popup.document.close()
+    } finally {
+      setLoadingId('')
+    }
+  }
+  return <div className="flex min-w-[96px] flex-col items-start gap-1">{ids.map((fileId, index) => <button key={`${fileId}-${index}`} type="button" disabled={Boolean(loadingId)} onClick={() => openPhoto(fileId, index)} className="text-sm font-bold text-emerald-700 underline underline-offset-2 hover:text-emerald-900 disabled:cursor-wait disabled:text-slate-400">{loadingId === fileId ? '照片讀取中…' : `查看照片 ${index + 1}`}</button>)}</div>
 }
 
 export default function DatabaseViewer({ cases, getMinguoTime }) {
