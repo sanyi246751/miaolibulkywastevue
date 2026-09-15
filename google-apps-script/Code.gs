@@ -22,7 +22,12 @@ function upload_(request, properties) {
   const fileName = String(request.fileName || '');
   const mimeType = String(request.mimeType || 'image/jpeg');
   const base64 = String(request.base64 || '');
-  if (!/^\d{3}-\d{4}-\d{3,}$/.test(caseNo) || !/^[\w-]+\.jpg$/i.test(fileName) || !mimeType.startsWith('image/') || !base64) throw new Error('照片資料格式不正確');
+  if (!/^\d{3}-\d{4}-\d{3,}$/.test(caseNo)) throw new Error('預約單號格式不正確');
+  // 一般照片：115-0915-006-1.jpg；結案照片：115-0915-006-finish-1.jpg
+  const escapedCaseNo = caseNo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const validFileName = new RegExp('^' + escapedCaseNo + '-(?:finish-)?\\d+\\.jpg$', 'i');
+  if (!validFileName.test(fileName)) throw new Error('照片檔名格式不正確：' + fileName);
+  if (!mimeType.startsWith('image/') || !base64) throw new Error('照片內容格式不正確');
   const rootId = properties.getProperty('DRIVE_ROOT_FOLDER_ID');
   if (!rootId) throw new Error('尚未設定 Google Drive 根資料夾');
   const root = DriveApp.getFolderById(rootId);

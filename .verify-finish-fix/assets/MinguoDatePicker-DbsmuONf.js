@@ -1,0 +1,250 @@
+import { u as useState, f as useEffect, c as createVNode, a as createTextVNode } from "./registerServiceWorker-BpZ2tgbu.js";
+const CATEGORIES = [
+  { id: "mattress", name: "床墊", icon: "🛏️", desc: "單人床墊、雙人床墊、彈簧床" },
+  { id: "cabinet", name: "櫃子", icon: "🗄️", desc: "衣櫃、鞋櫃、斗櫃、酒櫃、電視櫃" },
+  { id: "table", name: "桌子", icon: "🪑", desc: "餐桌、書桌、茶幾、電腦桌" },
+  { id: "chair", name: "椅子", icon: "🛋️", desc: "單人椅、辦公椅、雙人沙發、三人沙發" },
+  { id: "tv", name: "電視", icon: "📺", desc: "液晶電視、傳統電視（家電類）" },
+  { id: "fridge", name: "冰箱", icon: "🧊", desc: "單門冰箱、雙門/多門冰箱（家電類）" },
+  { id: "other", name: "其他", icon: "📦", desc: "大型收納架、金屬架、彈簧床框等" }
+];
+const COUNTIES = [
+  "基隆市",
+  "台北市",
+  "新北市",
+  "桃園市",
+  "新竹市",
+  "新竹縣",
+  "苗栗縣",
+  "台中市",
+  "彰化縣",
+  "南投縣",
+  "雲林縣",
+  "嘉義市",
+  "嘉義縣",
+  "台南市",
+  "高雄市",
+  "屏東縣",
+  "宜蘭縣",
+  "花蓮縣",
+  "台東縣",
+  "澎湖縣",
+  "金門縣",
+  "連江縣"
+];
+const DISTRICTS_BY_COUNTY = {
+  "基隆市": ["仁愛區", "信義區", "中正區", "中山區", "安樂區", "暖暖區", "七堵區"],
+  "台北市": ["中正區", "大同區", "中山區", "松山區", "大安區", "萬華區", "信義區", "士林區", "北投區", "內湖區", "南港區", "文山區"],
+  "新北市": ["板橋區", "三重區", "中和區", "永和區", "新莊區", "新店區", "樹林區", "鶯歌區", "三峽區", "淡水區", "汐止區", "瑞芳區", "土城區", "蘆洲區", "五股區", "泰山區", "林口區", "深坑區", "石碇區", "坪林區", "三芝區", "石門區", "八里區", "平溪區", "雙溪區", "貢寮區", "金山區", "萬里區", "烏來區"],
+  "桃園市": ["桃園區", "中壢區", "平鎮區", "八德區", "楊梅區", "蘆竹區", "大溪區", "龍潭區", "龜山區", "大園區", "觀音區", "新屋區", "復興區"],
+  "新竹市": ["東區", "北區", "香山區"],
+  "新竹縣": ["竹北市", "竹東鎮", "新埔鎮", "關西鎮", "湖口鄉", "新豐鄉", "芎林鄉", "橫山鄉", "北埔鄉", "寶山鄉", "峨眉鄉", "尖石鄉", "五峰鄉"],
+  "苗栗縣": ["苗栗市", "頭份市", "竹南鎮", "後龍鎮", "通霄鎮", "苑裡鎮", "卓蘭鎮", "造橋鄉", "西湖鄉", "頭屋鄉", "公館鄉", "銅鑼鄉", "三義鄉", "大湖鄉", "獅潭鄉", "三灣鄉", "南庄鄉", "泰安鄉"],
+  "台中市": ["中區", "東區", "南區", "西區", "北區", "西屯區", "南屯區", "北屯區", "豐原區", "東勢區", "大甲區", "清水區", "沙鹿區", "梧棲區", "后里區", "神岡區", "潭子區", "大雅區", "新社區", "石岡區", "外埔區", "大安區", "烏日區", "大肚區", "龍井區", "霧峰區", "太平區", "大里區", "和平區"],
+  "彰化縣": ["彰化市", "員林市", "鹿港鎮", "和美鎮", "北斗鎮", "溪湖鎮", "田中鎮", "二林鎮", "線西鄉", "伸港鄉", "福興鄉", "秀水鄉", "花壇鄉", "芬園鄉", "大村鄉", "埔鹽鄉", "埔心鄉", "永靖鄉", "社頭鄉", "二水鄉", "田尾鄉", "埤頭鄉", "芳苑鄉", "大城鄉", "竹塘鄉", "溪州鄉"],
+  "南投縣": ["南投市", "埔里鎮", "草屯鎮", "竹山鎮", "集集鎮", "名間鄉", "鹿谷鄉", "中寮鄉", "魚池鄉", "國姓鄉", "水里鄉", "信義鄉", "仁愛鄉"],
+  "雲林縣": ["斗六市", "斗南鎮", "虎尾鎮", "西螺鎮", "土庫鎮", "北港鎮", "古坑鄉", "大埤鄉", "莿桐鄉", "林內鄉", "二崙鄉", "崙背鄉", "麥寮鄉", "東勢鄉", "褒忠鄉", "台西鄉", "元長鄉", "四湖鄉", "口湖鄉", "水林鄉"],
+  "嘉義市": ["東區", "西區"],
+  "嘉義縣": ["太保市", "朴子市", "布袋鎮", "大林鎮", "民雄鄉", "溪口鄉", "新港鄉", "六腳鄉", "東石鄉", "義竹鄉", "鹿草鄉", "水上鄉", "中埔鄉", "竹崎鄉", "梅山鄉", "番路鄉", "大埔鄉", "阿里山鄉"],
+  "台南市": ["中西區", "東區", "南區", "北區", "安平區", "安南區", "永康區", "歸仁區", "新化區", "左鎮區", "玉井區", "楠西區", "南化區", "仁德區", "關廟區", "龍崎區", "官田區", "麻豆區", "佳里區", "西港區", "七股區", "將軍區", "學甲區", "北門區", "新營區", "後壁區", "白河區", "東山區", "六甲區", "下營區", "柳營區", "鹽水區", "善化區", "大內區", "山上區", "新市區", "安定區"],
+  "高雄市": ["楠梓區", "左營區", "鼓山區", "三民區", "鹽埕區", "前金區", "新興區", "苓雅區", "前鎮區", "旗津區", "小港區", "鳳山區", "林園區", "大寮區", "大樹區", "大社區", "仁武區", "鳥松區", "岡山區", "橋頭區", "燕巢區", "田寮區", "阿蓮區", "路竹區", "湖內區", "茄萣區", "永安區", "彌陀區", "梓官區", "旗山區", "美濃區", "六龜區", "甲仙區", "杉林區", "內門區", "茂林區", "桃源區", "那瑪夏區"],
+  "屏東縣": ["屏東市", "潮州鎮", "東港鎮", "恆春鎮", "萬丹鄉", "長治鄉", "麟洛鄉", "九如鄉", "里港鄉", "鹽埔鄉", "高樹鄉", "萬巒鄉", "內埔鄉", "竹田鄉", "新埤鄉", "枋寮鄉", "新園鄉", "崁頂鄉", "林邊鄉", "南州鄉", "佳冬鄉", "琉球鄉", "車城鄉", "滿州鄉", "枋山鄉", "三地門鄉", "霧台鄉", "瑪家鄉", "泰武鄉", "來義鄉", "春日鄉", "獅子鄉", "牡丹鄉"],
+  "宜蘭縣": ["宜蘭市", "羅東鎮", "蘇澳鎮", "頭城鎮", "礁溪鄉", "壯圍鄉", "員山鄉", "冬山鄉", "五結鄉", "三星鄉", "大同鄉", "南澳鄉"],
+  "花蓮縣": ["花蓮市", "鳳林鎮", "玉里鎮", "新城鄉", "吉安鄉", "壽豐鄉", "光復鄉", "豐濱鄉", "瑞穗鄉", "富里鄉", "秀林鄉", "萬榮鄉", "卓溪鄉"],
+  "台東縣": ["台東市", "成功鎮", "關山鎮", "卑南鄉", "鹿野鄉", "池上鄉", "東河鄉", "長濱鄉", "太麻里鄉", "大武鄉", "綠島鄉", "海端鄉", "延平鄉", "金峰鄉", "達仁鄉", "蘭嶼鄉"],
+  "澎湖縣": ["馬公市", "湖西鄉", "白沙鄉", "西嶼鄉", "望安鄉", "七美鄉"],
+  "金門縣": ["金城鎮", "金沙鎮", "金湖鎮", "金寧鄉", "烈嶼鄉", "烏坵鄉"],
+  "連江縣": ["南竿鄉", "北竿鄉", "莒光鄉", "東引鄉"]
+};
+const TERMS_LIST = [
+  {
+    id: 1,
+    title: "服務範圍",
+    content: "本服務限一般家戶申請大型廢棄傢俱清運；公司、工廠、店家、旅宿業及裝修工程所產生的廢棄物，不適用本服務。"
+  },
+  {
+    id: 2,
+    title: "年度免費額度與計費",
+    content: "同一地址每年最多可申請 3 次免費清運，全年合計 6 件免費；已使用 6 件或第 4 次申請起，每件按 NT$200 計費。實際件數與費用以清潔隊人工覆核結果為準。"
+  },
+  {
+    id: 3,
+    title: "搬出與放置方式",
+    content: "請於約定清運日當天或前一日晚間，自行將物品搬至一樓約定地點；放置時不得阻礙通行、交通或影響公共安全。"
+  },
+  {
+    id: 4,
+    title: "物品標示與內容限制",
+    content: "請在搬出物品上清楚標示預約單號或聯絡人姓名、電話。不得夾帶高壓氣瓶、易燃物、一般生活垃圾、事業廢棄物或其他危險物品。"
+  },
+  {
+    id: 5,
+    title: "資料使用與申請責任",
+    content: "本人確認所填資料與申請內容正確，並同意供清運聯繫、身分與地址核對及案件管理使用；如資料不實、物品不符規定或未依約放置，清潔隊得不予清運。"
+  }
+];
+const NATIONAL_HOLIDAYS = {
+  "2026-01-01": "元旦",
+  "2026-02-16": "農曆春節假期",
+  "2026-02-17": "農曆春節假期",
+  "2026-02-18": "農曆春節假期",
+  "2026-02-19": "農曆春節假期",
+  "2026-02-20": "農曆春節假期",
+  "2026-02-27": "和平紀念日補假",
+  "2026-04-03": "兒童節補假",
+  "2026-04-06": "清明節補假",
+  "2026-05-01": "勞動節",
+  "2026-06-19": "端午節",
+  "2026-09-25": "中秋節",
+  "2026-09-28": "孔子誕辰紀念日／教師節",
+  "2026-10-09": "國慶日補假",
+  "2026-10-26": "臺灣光復暨金門古寧頭大捷紀念日補假",
+  "2026-12-25": "行憲紀念日"
+};
+function getUnavailableBookingReason(value) {
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return "日期格式不正確";
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  if (date.getFullYear() !== Number(match[1]) || date.getMonth() !== Number(match[2]) - 1 || date.getDate() !== Number(match[3])) return "日期不存在";
+  if (date.getDay() === 0 || date.getDay() === 6) return "例假日（星期六、星期日）不提供預約";
+  if (NATIONAL_HOLIDAYS[value]) return NATIONAL_HOLIDAYS[value] + "不提供預約";
+  return "";
+}
+function getMinguoTime(d) {
+  if (!d) d = /* @__PURE__ */ new Date();
+  if (!(d instanceof Date)) {
+    var raw = String(d).trim();
+    var parts = raw.match(/\d+/g);
+    if ((raw.indexOf("民國") === 0 || /^\d{2,3}\/\d{1,2}\/\d{1,2}/.test(raw)) && parts && parts.length >= 3) {
+      if (/^\d{2,3}\/\d{1,2}\/\d{1,2}/.test(raw)) return raw;
+      d = new Date(Number(parts[0]) + 1911, Number(parts[1]) - 1, Number(parts[2]), Number(parts[3] || 0), Number(parts[4] || 0));
+    } else {
+      d = new Date(raw);
+    }
+    if (isNaN(d.getTime())) return raw;
+  }
+  var year = d.getFullYear() - 1911;
+  var month = d.getMonth() + 1;
+  var day = d.getDate();
+  var period = d.getHours() < 12 ? "上午" : "下午";
+  var hours = ("0" + (d.getHours() % 12 || 12)).slice(-2);
+  var minutes = ("0" + d.getMinutes()).slice(-2);
+  return year + "/" + month + "/" + day + period + hours + ":" + minutes;
+}
+function formatMinguoDate(value) {
+  if (/^\d{2,3}\/\d{1,2}\/\d{1,2}$/.test(String(value || ""))) return value;
+  return getMinguoTime(value).replace(/(上午|下午).*/, "");
+}
+function formatTaiwanPhone(value) {
+  const digits = String(value || "").replace(/\D/g, "").slice(0, 10);
+  if (/^09\d{8}$/.test(digits)) return digits.slice(0, 4) + "-" + digits.slice(4);
+  if (/^037\d{6}$/.test(digits)) return digits.slice(0, 3) + "-" + digits.slice(3);
+  if (/^02\d{8}$/.test(digits)) return digits.slice(0, 2) + "-" + digits.slice(2);
+  if (/^0\d{8,9}$/.test(digits)) return digits.slice(0, 3) + "-" + digits.slice(3);
+  return value;
+}
+function MinguoDatePicker({
+  value,
+  setSelectedDate,
+  min = "",
+  disabled = false,
+  className = ""
+}) {
+  const parsed = value ? /* @__PURE__ */ new Date(`${value}T00:00:00`) : /* @__PURE__ */ new Date();
+  const [open, setOpen] = useState(false);
+  const [view, setView] = useState({
+    year: parsed.getFullYear(),
+    month: parsed.getMonth()
+  });
+  useEffect(() => {
+    if (!value) return;
+    const date = /* @__PURE__ */ new Date(`${value}T00:00:00`);
+    if (!Number.isNaN(date.getTime())) setView({
+      year: date.getFullYear(),
+      month: date.getMonth()
+    });
+  }, [value]);
+  const shift = (amount) => {
+    const date = new Date(view.year, view.month + amount, 1);
+    setView({
+      year: date.getFullYear(),
+      month: date.getMonth()
+    });
+  };
+  const choose = (day) => {
+    const next = `${view.year}-${String(view.month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    if (min && next < min) return;
+    setSelectedDate(next);
+    setOpen(false);
+  };
+  const first = new Date(view.year, view.month, 1).getDay();
+  const total = new Date(view.year, view.month + 1, 0).getDate();
+  return createVNode("div", {
+    "className": "relative z-30"
+  }, [createVNode("button", {
+    "type": "button",
+    "disabled": disabled,
+    "aria-haspopup": "dialog",
+    "aria-expanded": open,
+    "onClick": () => setOpen(!open),
+    "className": className
+  }, [createVNode("span", null, [value ? formatMinguoDate(value) : "請選擇日期"]), createVNode("span", {
+    "aria-hidden": "true"
+  }, [createTextVNode("📅")])]), open && createVNode("div", {
+    "className": "minguo-calendar-overlay",
+    "onClick": () => setOpen(false)
+  }, [createVNode("div", {
+    "role": "dialog",
+    "aria-modal": "true",
+    "aria-label": "選擇希望清運日期",
+    "onClick": (event) => event.stopPropagation(),
+    "className": "minguo-calendar-dialog rounded-xl border border-emerald-200 bg-white p-3 text-slate-800 shadow-2xl"
+  }, [createVNode("div", {
+    "className": "mb-2 flex items-center justify-between"
+  }, [createVNode("button", {
+    "type": "button",
+    "onClick": () => shift(-1),
+    "className": "rounded px-2 py-1 hover:bg-emerald-50",
+    "aria-label": "上個月"
+  }, [createTextVNode("‹")]), createVNode("span", {
+    "className": "font-black"
+  }, [createTextVNode("民國 "), view.year - 1911, createTextVNode(" 年 "), view.month + 1, createTextVNode(" 月")]), createVNode("button", {
+    "type": "button",
+    "onClick": () => shift(1),
+    "className": "rounded px-2 py-1 hover:bg-emerald-50",
+    "aria-label": "下個月"
+  }, [createTextVNode("›")])]), createVNode("div", {
+    "className": "grid grid-cols-7 text-center text-xs"
+  }, [["日", "一", "二", "三", "四", "五", "六"].map((item) => createVNode("span", {
+    "key": item,
+    "className": "py-1 text-slate-400"
+  }, [item])), Array.from({
+    length: first
+  }, (_, index) => createVNode("span", {
+    "key": `blank-${index}`
+  }, null)), Array.from({
+    length: total
+  }, (_, index) => {
+    const day = index + 1;
+    const iso = `${view.year}-${String(view.month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const active = iso === value;
+    return createVNode("button", {
+      "type": "button",
+      "disabled": Boolean(min && iso < min),
+      "key": day,
+      "onClick": () => choose(day),
+      "className": "m-0.5 rounded-full py-1.5 font-bold disabled:cursor-not-allowed disabled:text-slate-300 " + (active ? "bg-emerald-700 text-white" : "hover:bg-emerald-50")
+    }, [day]);
+  })])])])]);
+}
+export {
+  COUNTIES as C,
+  DISTRICTS_BY_COUNTY as D,
+  MinguoDatePicker as M,
+  TERMS_LIST as T,
+  CATEGORIES as a,
+  formatMinguoDate as b,
+  getMinguoTime as c,
+  formatTaiwanPhone as f,
+  getUnavailableBookingReason as g
+};
