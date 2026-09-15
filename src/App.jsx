@@ -20,6 +20,7 @@ import { GAS_URL, createPublicCase, preparePublicUploads, queryCase, uploadSigne
       const [successBooking, setSuccessBooking] = useState(null);
       const [printableBooking, setPrintableBooking] = useState(null);
       const [submissionDialog, setSubmissionDialog] = useState(null);
+      const [submissionProgress, setSubmissionProgress] = useState(null);
       // Form State
       const [applicantName, setApplicantName] = useState('');
       const [phone, setPhone] = useState('');
@@ -140,6 +141,7 @@ import { GAS_URL, createPublicCase, preparePublicUploads, queryCase, uploadSigne
 
         const estimatedSeconds = photos.length > 0 ? Math.min(10, 2 + photos.length * 2) : 1;
         setIsSubmitting(true);
+        setSubmissionProgress({ percent: 0, status: photos.length ? `準備上傳 ${photos.length} 張照片…` : '正在建立申請案件…' });
         setSubmitSecondsLeft(estimatedSeconds);
         const countdownTimer = setInterval(() => setSubmitSecondsLeft((seconds) => Math.max(0, seconds - 1)), 1000);
         await new Promise((resolve) => setTimeout(resolve, 50));
@@ -148,7 +150,17 @@ import { GAS_URL, createPublicCase, preparePublicUploads, queryCase, uploadSigne
           const totalQuantity = selectedItems.reduce((total, item) => total + Number(item.quantity || 0), 0);
           const wasteType = selectedItems.map((item) => `${item.name}×${item.quantity}`).join('、');
           const uploadSession = photos.length ? await preparePublicUploads(photos.map((photo) => ({ mimeType: photo.file?.type || 'image/jpeg', size: photo.file?.size || 0 }))) : null;
-          if (uploadSession) await Promise.all(uploadSession.uploads.map((upload, index) => uploadSignedPhoto(upload.signedUrl, photos[index].file, photos[index].file?.type || 'image/jpeg')));
+          if (uploadSession) {
+            const uploadedBytes = photos.map(() => 0);
+            const totalBytes = photos.reduce((sum, photo) => sum + Number(photo.file?.size || 0), 0);
+            await Promise.all(uploadSession.uploads.map((upload, index) => uploadSignedPhoto(upload.signedUrl, photos[index].file, photos[index].file?.type || 'image/jpeg', (loaded) => {
+              uploadedBytes[index] = loaded;
+              const uploaded = uploadedBytes.reduce((sum, value) => sum + value, 0);
+              const percent = totalBytes ? Math.min(100, Math.round(uploaded / totalBytes * 100)) : 100;
+              setSubmissionProgress({ percent, status: `正在上傳待清運照片（${percent}%）…` });
+            })));
+          }
+          setSubmissionProgress({ percent: 100, status: '照片已上傳，正在建立案件並排入 Google Drive 背景同步…' });
           const fullAddress = `${county}${district}${detailAddress.trim()}`;
           const bookingId = await createPublicCase({
             applicant: applicantName.trim(), phone: formatTaiwanPhone(phone),
@@ -163,6 +175,7 @@ import { GAS_URL, createPublicCase, preparePublicUploads, queryCase, uploadSigne
             createdAt: getMinguoTime(), agreedToTerms: true
           };
           setSuccessBooking(newBooking);
+          setSubmissionProgress(null);
           setApplicantName(''); setPhone(''); setEmail(''); setCounty('苗栗縣'); setDistrict('三義鄉');
           const nextDefaultDate = getDefaultBookingDate();
           setDetailAddress(''); setSelectedItems([]); setPhotos([]); setPreferredDate(nextDefaultDate);
@@ -172,6 +185,7 @@ import { GAS_URL, createPublicCase, preparePublicUploads, queryCase, uploadSigne
           const message = error.message || '申請送出失敗，請稍後再試';
           setErrors({ submit: message });
           setSubmissionDialog({ title: '申請送出失敗', messages: [message] });
+          setSubmissionProgress(null);
         } finally {
           clearInterval(countdownTimer);
           setSubmitSecondsLeft(0);
@@ -217,6 +231,8 @@ import { GAS_URL, createPublicCase, preparePublicUploads, queryCase, uploadSigne
           <BookingSuccessModal {...viewProps} />
 
           {submissionDialog && <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/85 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="submission-dialog-title"><div className="w-full max-w-md rounded-3xl border border-rose-500/40 bg-slate-900 p-6 text-white shadow-2xl"><div className="flex items-start gap-3"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-rose-500/20 text-xl font-black text-rose-300">!</span><div><h3 id="submission-dialog-title" className="text-xl font-black">{submissionDialog.title}</h3><p className="mt-1 text-xs text-slate-400">請確認以下內容後再送出申請。</p></div></div><ul className="mt-5 list-inside list-disc space-y-2 rounded-xl border border-slate-700 bg-slate-950 p-4 text-sm text-rose-200">{submissionDialog.messages.map((message, index) => <li key={`${message}-${index}`}>{message}</li>)}</ul><button type="button" onClick={() => setSubmissionDialog(null)} className="mt-5 w-full rounded-xl bg-rose-500 py-3 font-black text-white hover:bg-rose-400">返回填寫</button></div></div>}
+
+          {submissionProgress && <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/85 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="public-upload-title"><div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl"><h3 id="public-upload-title" className="text-xl font-black text-slate-900">申請資料上傳中</h3><p className="mt-2 text-sm text-slate-600">{submissionProgress.status}</p><div className="mt-5 flex justify-between text-sm font-black text-slate-800"><span>實際上傳進度</span><span>{submissionProgress.percent}%</span></div><div className="mt-2 h-4 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-emerald-600 transition-[width] duration-200" style={{ width: `${submissionProgress.percent}%` }}/></div><p className="mt-4 text-center text-xs font-bold text-slate-500">完成送出後，Google Drive 將於背景同步</p></div></div>}
 
           <PrintableTagModal {...viewProps} />
 
