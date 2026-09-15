@@ -156,6 +156,29 @@
 .app-shell > .fixed.inset-0 > div { background-color: #fff; }
 .app-shell .success-summary,
 .app-shell .success-summary * { color: #fff !important; }
+
+/* Admin tabs use the navigation label as their heading. */
+main[class*="max-w-4xl"] > header,
+main[class*="max-w-[1600px]"] > header {
+  display: none;
+}
+
+/* Keep database search controls in a narrow left rail and give fields more room. */
+@media (min-width: 1024px) {
+  main[class*="max-w-[1600px]"] > section:first-of-type > div:first-child {
+    display: grid;
+    grid-template-columns: 16rem minmax(0, 1fr);
+    gap: 1.25rem;
+  }
+  main[class*="max-w-[1600px]"] > section:first-of-type > div:first-child > div:first-child {
+    grid-template-columns: minmax(0, 1fr);
+    width: 16rem;
+  }
+  main[class*="max-w-[1600px]"] > section:first-of-type > div:first-child > div:last-child {
+    max-width: none;
+    min-width: 0;
+  }
+}
 /* Print CSS setup */
 @media print {
   @page { size: A4 portrait; margin: 12mm; }
