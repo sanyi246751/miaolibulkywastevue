@@ -355,7 +355,6 @@ export default function AdminApp() {
     await loadCases()
     setSelectedNo(caseNo)
     selectPage('待處理')
-    setMessage(`電話申請已建立，案件編號：${caseNo}`)
   }
 
   const restoreCaseStatus = async () => {
