@@ -13,16 +13,6 @@ export default function BookingView(props) {
             {activeTab === 'booking' && (
               <form onSubmit={handleFormSubmit} className="max-w-4xl mx-auto space-y-5 sm:space-y-8">
                 
-                {/* Validation Warnings */}
-                {Object.keys(errors).length > 0 && (
-                  <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/40 text-rose-300 text-xs space-y-1">
-                    <strong className="text-sm block">⚠️ 請修正以下未填寫或格式不符欄位：</strong>
-                    <ul className="list-disc list-inside">
-                      {Object.values(errors).map((e, idx) => <li key={idx}>{e}</li>)}
-                    </ul>
-                  </div>
-                )}
-
                 {/* Step 1: Applicant Info */}
                 <div className="glass-card rounded-2xl p-6 border border-slate-700/60 shadow-xl space-y-6">
                   <div>

@@ -19,6 +19,7 @@ import { GAS_URL, createPublicCase, preparePublicUploads, queryCase, uploadSigne
       // Modal States
       const [successBooking, setSuccessBooking] = useState(null);
       const [printableBooking, setPrintableBooking] = useState(null);
+      const [submissionDialog, setSubmissionDialog] = useState(null);
       // Form State
       const [applicantName, setApplicantName] = useState('');
       const [phone, setPhone] = useState('');
@@ -133,7 +134,7 @@ import { GAS_URL, createPublicCase, preparePublicUploads, queryCase, uploadSigne
 
         setErrors(errs);
         if (Object.keys(errs).length > 0) {
-          window.scrollTo({ top: 120, behavior: 'smooth' });
+          setSubmissionDialog({ title: '資料尚未填寫完整', messages: Object.values(errs) });
           return;
         }
 
@@ -168,8 +169,9 @@ import { GAS_URL, createPublicCase, preparePublicUploads, queryCase, uploadSigne
           setPreferredTimeSlot('上午8點至12點'); setLocationNote(''); setAgreedTerms([]); setErrors({}); setActiveTab('booking');
           window.scrollTo({ top: 0, behavior: 'smooth' });
         } catch (error) {
-          setErrors({ submit: error.message || '申請送出失敗，請稍後再試' });
-          window.scrollTo({ top: 120, behavior: 'smooth' });
+          const message = error.message || '申請送出失敗，請稍後再試';
+          setErrors({ submit: message });
+          setSubmissionDialog({ title: '申請送出失敗', messages: [message] });
         } finally {
           clearInterval(countdownTimer);
           setSubmitSecondsLeft(0);
@@ -213,6 +215,8 @@ import { GAS_URL, createPublicCase, preparePublicUploads, queryCase, uploadSigne
           </main>
 
           <BookingSuccessModal {...viewProps} />
+
+          {submissionDialog && <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/85 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="submission-dialog-title"><div className="w-full max-w-md rounded-3xl border border-rose-500/40 bg-slate-900 p-6 text-white shadow-2xl"><div className="flex items-start gap-3"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-rose-500/20 text-xl font-black text-rose-300">!</span><div><h3 id="submission-dialog-title" className="text-xl font-black">{submissionDialog.title}</h3><p className="mt-1 text-xs text-slate-400">請確認以下內容後再送出申請。</p></div></div><ul className="mt-5 list-inside list-disc space-y-2 rounded-xl border border-slate-700 bg-slate-950 p-4 text-sm text-rose-200">{submissionDialog.messages.map((message, index) => <li key={`${message}-${index}`}>{message}</li>)}</ul><button type="button" onClick={() => setSubmissionDialog(null)} className="mt-5 w-full rounded-xl bg-rose-500 py-3 font-black text-white hover:bg-rose-400">返回填寫</button></div></div>}
 
           <PrintableTagModal {...viewProps} />
 
