@@ -302,7 +302,7 @@ export default {
       return dbError ? error(dbError.message, 500) : reply({ ok: true, database: { cases: casesResult.data || [], vehicles: vehiclesResult.data || [], workers: workersResult.data || [], system_settings: settingsResult.data || [], case_history: historyResult.data || [], photo_sync_jobs: photoSyncResult.data || [] } })
     }
     if (action === "databaseDelete") {
-      const table = String(body.table || ""), allowed = ["cases", "vehicles", "workers", "system_settings", "case_history"]
+      const table = String(body.table || ""), allowed = ["cases", "vehicles", "workers", "system_settings", "case_history", "photo_sync_jobs"]
       if (!allowed.includes(table)) return error("不允許刪除此資料表")
       const key = table === "cases" ? "case_no" : table === "system_settings" ? "setting_key" : "id"
       const value = String(body.keyValue || "")
