@@ -313,7 +313,8 @@ export default {
       const fileId = path.slice("drive:".length)
       try {
         await driveRequest(ctx.supabaseAdmin, { action: "share", fileId })
-        return reply({ ok: true, url: `https://drive.google.com/thumbnail?id=${encodeURIComponent(fileId)}&sz=w1600` })
+        const encodedId = encodeURIComponent(fileId)
+        return reply({ ok: true, thumbnailUrl: `https://drive.google.com/thumbnail?id=${encodedId}&sz=w320`, url: `https://drive.google.com/thumbnail?id=${encodedId}&sz=w2400` })
       } catch (driveError) { return error(driveError instanceof Error ? driveError.message : "無法取得 Google Drive 照片連結", 500) }
     }
     if (action === "deleteImage") {
