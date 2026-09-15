@@ -33,6 +33,7 @@ const formatBytes = (value) => {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / 1024 / 1024).toFixed(2)} MB`
 }
+const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))
 const photoList = (value) => {
   if (Array.isArray(value)) return value
   try { const parsed = JSON.parse(value || '[]'); return Array.isArray(parsed) ? parsed : [] } catch { return [] }
@@ -417,7 +418,23 @@ export default function AdminApp() {
       const metrics = route && !alreadyRecorded ? { completion_distance_km: Number(route.distanceKm || 0), completion_carbon_kg: Number(route.carbonKg || 0) } : {}
       const next = { ...draft, status: '清運完成', dispatch_status: '清運完成', completion_photo_paths: photoIds, dispatch_note: note, ...metrics }
       await adminPost('upsert', { case: toCasePayload(next) })
-      await adminPost('adminQueueCompletionPhotos', { caseNo: draft.case_no, stagedPhotoPaths: photoIds })
+      const queued = await adminPost('adminQueueCompletionPhotos', { caseNo: draft.case_no, stagedPhotoPaths: photoIds })
+      const jobIds = (queued.jobs || []).map((job) => job.id)
+      if (!jobIds.length) throw new Error('未取得 Google Drive 同步工作')
+      setCompletionUploadProgress(0)
+      setCompletionUploadBytes({ uploaded: totalBytes, total: totalBytes, completedFiles: 0, totalFiles: files.length })
+      while (true) {
+        const syncResult = await adminPost('adminPhotoSyncStatus', { jobIds })
+        const completed = (syncResult.jobs || []).filter((job) => job.status === 'completed' && job.drive_file_id).length
+        const failed = (syncResult.jobs || []).filter((job) => job.status === 'failed').length
+        const syncing = (syncResult.jobs || []).filter((job) => job.status === 'syncing').length
+        const percent = Math.round(completed / jobIds.length * 100)
+        setCompletionUploadProgress(percent)
+        setCompletionUploadBytes({ uploaded: totalBytes, total: totalBytes, completedFiles: completed, totalFiles: jobIds.length })
+        setCompletionUploadStatus(failed ? `Google Drive 已完成 ${completed}/${jobIds.length} 張；${failed} 張等待自動重試…` : `Google Drive 已完成 ${completed}/${jobIds.length} 張${syncing ? '，其餘同步中…' : '，等待同步…'}`)
+        if (completed === jobIds.length) break
+        await wait(1000)
+      }
       setMessage(`已上傳 ${photoIds.length} 張結案照片，案件已標記為清運完成${route && !alreadyRecorded ? '，班次里程與碳排量已計入' : ''}`)
       setCompletionUploadStatus(`已完成 ${photoIds.length} 張結案照片上傳與案件結案。`)
       setCompletionUploadResult('success')

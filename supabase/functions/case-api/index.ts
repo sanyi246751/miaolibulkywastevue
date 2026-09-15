@@ -238,10 +238,16 @@ export default {
     if (action === "adminQueueCompletionPhotos") {
       const caseNo = String(body.caseNo || ""), stagedPhotoPaths = Array.isArray(body.stagedPhotoPaths) ? body.stagedPhotoPaths.map(String) : []
       if (!caseNo || !stagedPhotoPaths.length || stagedPhotoPaths.length > 8 || stagedPhotoPaths.some((path) => !path.startsWith("staging/"))) return error("結案照片暫存路徑不正確")
-      const { error: jobError } = await ctx.supabaseAdmin.from("photo_sync_jobs").insert(stagedPhotoPaths.map((storagePath, index) => ({ case_no: caseNo, storage_path: storagePath, target_file_name: `${caseNo}-finish-${index + 1}.jpg`, photo_kind: "completion" })))
+      const { data: queuedJobs, error: jobError } = await ctx.supabaseAdmin.from("photo_sync_jobs").insert(stagedPhotoPaths.map((storagePath, index) => ({ case_no: caseNo, storage_path: storagePath, target_file_name: `${caseNo}-finish-${index + 1}.jpg`, photo_kind: "completion" }))).select("id,status,attempts,last_error,drive_file_id")
       if (jobError) return error(jobError.message, 500)
-      await syncCasePhotos(ctx.supabaseAdmin, caseNo)
-      return reply({ ok: true })
+      EdgeRuntime.waitUntil(syncCasePhotos(ctx.supabaseAdmin, caseNo))
+      return reply({ ok: true, jobs: queuedJobs || [] })
+    }
+    if (action === "adminPhotoSyncStatus") {
+      const jobIds = Array.isArray(body.jobIds) ? body.jobIds.map(Number).filter(Number.isFinite) : []
+      if (!jobIds.length || jobIds.length > 8) return error("照片同步工作識別碼不正確")
+      const { data: jobs, error: jobsError } = await ctx.supabaseAdmin.from("photo_sync_jobs").select("id,status,attempts,last_error,drive_file_id").in("id", jobIds).order("id")
+      return jobsError ? error(jobsError.message, 500) : reply({ ok: true, jobs: jobs || [] })
     }
     if (action === "createPhoneCase") {
       const applicant = String(body.applicant || "").trim(), phone = String(body.phone || "").trim(), address = String(body.address || "").trim(), wasteType = String(body.wasteType || "").trim()
