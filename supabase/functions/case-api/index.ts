@@ -48,10 +48,14 @@ const mergeCompletedPhotoJobs = (cases: any[], jobs: any[]) => {
   })
 }
 const syncCasePhotos = async (supabase: any, caseNo: string) => {
-  const { data: jobs } = await supabase.from("photo_sync_jobs").select("*").eq("case_no", caseNo).in("status", ["pending", "failed", "syncing"]).order("id")
+  const { data: jobs } = await supabase.from("photo_sync_jobs").select("*").eq("case_no", caseNo).in("status", ["pending", "failed"]).order("id")
   for (const job of jobs || []) {
     try {
-      await supabase.from("photo_sync_jobs").update({ status: "syncing", attempts: Number(job.attempts || 0) + 1, updated_at: new Date().toISOString(), last_error: null }).eq("id", job.id)
+      const { data: claimed, error: claimError } = await supabase.from("photo_sync_jobs")
+        .update({ status: "syncing", attempts: Number(job.attempts || 0) + 1, updated_at: new Date().toISOString(), last_error: null })
+        .eq("id", job.id).in("status", ["pending", "failed"]).select("id").maybeSingle()
+      if (claimError) throw new Error(claimError.message)
+      if (!claimed) continue
       const { data: file, error: downloadError } = await supabase.storage.from("case-photos").download(job.storage_path)
       if (downloadError || !file) throw new Error(downloadError?.message || "找不到 Supabase 暫存照片")
       const bytes = new Uint8Array(await file.arrayBuffer())
@@ -150,6 +154,15 @@ export default {
     if (action === "query") {
       const { data, error: dbError } = await ctx.supabaseAdmin.rpc("query_case", { p_case_no: String(body.caseNo || ""), p_phone: String(body.phone || "") })
       return dbError ? error(dbError.message, 500) : reply({ ok: true, case: data?.[0] || null })
+    }
+    if (action === "retryFailedPhotoSync") {
+      const staleBefore = new Date(Date.now() - 2 * 60 * 1000).toISOString()
+      await ctx.supabaseAdmin.from("photo_sync_jobs").update({ status: "failed", last_error: "前次同步逾時，已排入自動重試", updated_at: new Date().toISOString() }).eq("status", "syncing").lt("updated_at", staleBefore)
+      const { data: failedJobs, error: jobsError } = await ctx.supabaseAdmin.from("photo_sync_jobs").select("case_no").eq("status", "failed").order("updated_at").limit(20)
+      if (jobsError) return error(jobsError.message, 500)
+      const caseNos = [...new Set((failedJobs || []).map((job: { case_no: string }) => job.case_no))]
+      for (const failedCaseNo of caseNos) await syncCasePhotos(ctx.supabaseAdmin, failedCaseNo)
+      return reply({ ok: true, retriedCases: caseNos.length })
     }
     if (action === "workerList") {
       const { data, error: dbError } = await ctx.supabaseAdmin.rpc("worker_list", { p_pin: String(body.pin || ""), p_keyword: String(body.keyword || "") })
