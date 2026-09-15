@@ -105,6 +105,7 @@ export default function AdminApp() {
   const [completionUploadResult, setCompletionUploadResult] = useState('')
   const [completionUploadPhase, setCompletionUploadPhase] = useState('')
   const [completionUploadBytes, setCompletionUploadBytes] = useState({ uploaded: 0, total: 0, completedFiles: 0, totalFiles: 0 })
+  const [actionDialog, setActionDialog] = useState(null)
   const completionInput = useRef(null)
 
   const loadCases = async (selectStatus = '') => {
@@ -284,34 +285,41 @@ export default function AdminApp() {
     } catch (error) { setMessage(error.message) } finally { setLoading(false) }
   }
 
-  const approveReview = async () => {
+  const approveReview = async (confirmed = false) => {
     const items = categories.map((type) => ({ type, quantity: Math.max(0, Number(reviewCounts[type] || 0)) })).filter((item) => item.quantity > 0)
     const total = items.reduce((sum, item) => sum + item.quantity, 0)
-    if (!total) return setMessage('請至少填寫一項人工確認品項')
+    if (!total) return setActionDialog({ type: 'error', title: '無法進行人工核可', messages: ['請至少填寫一項人工確認品項'] })
     const chargeable = total - (annualApplicationCount <= 3 ? Math.min(total, annualFreeRemaining) : 0)
+    if (confirmed !== true) return setActionDialog({ type: 'confirm', action: 'approve', title: '確認人工核可與費用', messages: [`案件編號：${draft.case_no}`, `確認總件數：${total} 件`, `計費件數：${chargeable} 件`, `應收費用：NT$ ${(chargeable * 200).toLocaleString()}`] })
     // 立即反映覆核結果，避免使用者必須等候雲端寫入及完整清單重新載入。
     const previousDraft = draft
     const approvedDraft = { ...draft, quantity: total, annual_count: annualApplicationCount, quantity_review_status: '人工已核可', confirmed_items: JSON.stringify(items), chargeable_quantity: chargeable, fee_amount: chargeable * 200 }
     setDraft(approvedDraft)
     setCases((current) => current.map((item) => item.case_no === approvedDraft.case_no ? approvedDraft : item))
-    setLoading(true); setMessage('人工已核可，正在同步…')
+    setLoading(true); setMessage(''); setActionDialog({ type: 'processing', title: '正在完成人工核可', messages: ['正在儲存人工確認品項與費用…'] })
     try {
       await adminPost('upsert', { case: toCasePayload(approvedDraft) })
-      setMessage('人工覆核已完成')
+      setActionDialog({ type: 'success', title: '人工覆核已完成', messages: [`案件 ${approvedDraft.case_no} 已完成核可`, `應收費用：NT$ ${(chargeable * 200).toLocaleString()}`] })
     } catch (error) {
       setDraft(previousDraft)
       setCases((current) => current.map((item) => item.case_no === previousDraft.case_no ? previousDraft : item))
-      setMessage(`覆核同步失敗，已還原：${error.message}`)
+      setActionDialog({ type: 'error', title: '人工覆核失敗', messages: [`資料已還原：${error.message}`] })
     } finally { setLoading(false) }
   }
 
-  const schedule = async () => {
-    if (draft.quantity_review_status !== '人工已核可') return setMessage('核可排班前，必須先完成逐項人工確認')
-    if (!draft.scheduled_at || !draft.vehicle_no || !draft.worker_name || !draft.dispatch_period) return setMessage('請填寫管理端排定的清運日期、清運時段、車號及班組')
-    if (!dispatchOptions.vehicles.some((item) => item.vehicle_no === draft.vehicle_no)) return setMessage('請由派車設定選擇有效車號')
-    if (!splitCrewMembers(draft.worker_name).every((member) => dispatchOptions.workers.includes(member))) return setMessage('請由清運人員設定選擇有效姓名')
+  const schedule = async (confirmed = false) => {
+    if (draft.quantity_review_status !== '人工已核可') return setActionDialog({ type: 'error', title: '無法核可排班', messages: ['核可排班前，必須先完成逐項人工確認'] })
+    if (!draft.scheduled_at || !draft.vehicle_no || !draft.worker_name || !draft.dispatch_period) return setActionDialog({ type: 'error', title: '排班資料未完整', messages: ['請填寫清運日期、清運時段、車號及班組'] })
+    if (!dispatchOptions.vehicles.some((item) => item.vehicle_no === draft.vehicle_no)) return setActionDialog({ type: 'error', title: '排班資料不正確', messages: ['請由派車設定選擇有效車號'] })
+    if (!splitCrewMembers(draft.worker_name).every((member) => dispatchOptions.workers.includes(member))) return setActionDialog({ type: 'error', title: '排班資料不正確', messages: ['請由清運人員設定選擇有效姓名'] })
     const selectedTrip = dispatchTripChoices.some((choice) => choice.trip === Number(draft.dispatch_trip || 1)) ? Number(draft.dispatch_trip || 1) : dispatchTripChoices[dispatchTripChoices.length - 1].trip
-    await save({ status: '已排班', dispatch_status: '已排班', dispatch_trip: selectedTrip }, '案件已核可排班', '待處理')
+    if (confirmed !== true) return setActionDialog({ type: 'confirm', action: 'schedule', title: '確認核可排班', messages: [`案件編號：${draft.case_no}`, `清運時間：${getMinguoTime(draft.scheduled_at)}・${draft.dispatch_period}`, `車號：${draft.vehicle_no}`, `清運人員：${draft.worker_name}`, `第 ${selectedTrip} 班`] })
+    setLoading(true); setMessage(''); setActionDialog({ type: 'processing', title: '正在核可排班', messages: ['正在儲存排班資料…'] })
+    try {
+      const next = { ...draft, status: '已排班', dispatch_status: '已排班', dispatch_trip: selectedTrip }
+      await adminPost('upsert', { case: toCasePayload(next) }); await loadCases('待處理')
+      setActionDialog({ type: 'success', title: '案件已核可排班', messages: [`案件 ${draft.case_no} 已排入第 ${selectedTrip} 班`] })
+    } catch (error) { setActionDialog({ type: 'error', title: '核可排班失敗', messages: [error.message] }) } finally { setLoading(false) }
   }
   const withdrawCase = async () => {
     if (!draft) return
@@ -462,6 +470,7 @@ export default function AdminApp() {
         {page === '待處理' && (!dispatchOptions.vehicles.length || !dispatchOptions.workers.length) && <p className="-mt-5 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-bold text-amber-800">尚未取得可選的派車車號或清運人員。請先在桌面版「派車設定」儲存設定並確認雲端同步成功，再按網頁右上角「重新整理」。</p>}
       </div>}</section>
     </div></main>}
+    {actionDialog && <div className="fixed inset-0 z-[85] flex items-center justify-center bg-slate-950/70 p-4" role="dialog" aria-modal="true" aria-labelledby="action-dialog-title"><div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl"><div className="flex items-start gap-3"><span className={'flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-xl font-black ' + (actionDialog.type === 'success' ? 'bg-emerald-100 text-emerald-700' : actionDialog.type === 'error' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700')}>{actionDialog.type === 'success' ? '✓' : actionDialog.type === 'error' ? '!' : actionDialog.type === 'processing' ? '…' : '?'}</span><div><h2 id="action-dialog-title" className="text-lg font-black">{actionDialog.title}</h2><div className="mt-2 space-y-1 text-sm text-slate-600">{actionDialog.messages.map((item, index) => <p key={`${item}-${index}`}>• {item}</p>)}</div></div></div>{actionDialog.type === 'confirm' ? <div className="mt-6 grid grid-cols-2 gap-3"><button type="button" onClick={() => setActionDialog(null)} className="rounded-xl border border-slate-300 py-3 font-black text-slate-600">取消</button><button type="button" onClick={() => actionDialog.action === 'approve' ? approveReview(true) : schedule(true)} className="rounded-xl bg-emerald-700 py-3 font-black text-white">確認執行</button></div> : actionDialog.type === 'processing' ? <div className="mt-6 flex justify-center"><span className="h-9 w-9 animate-spin rounded-full border-4 border-slate-200 border-t-emerald-600"/></div> : <button type="button" onClick={() => setActionDialog(null)} className={'mt-6 w-full rounded-xl py-3 font-black text-white ' + (actionDialog.type === 'error' ? 'bg-rose-600' : 'bg-emerald-700')}>關閉</button>}</div></div>}
     {completionUploadProgress !== null && <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/70 p-4" role="dialog" aria-modal="true" aria-labelledby="completion-upload-title"><div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl"><div className="flex items-center gap-3"><span className={'flex h-11 w-11 items-center justify-center rounded-full text-xl ' + (completionUploadResult === 'error' ? 'bg-rose-100' : completionUploadResult === 'success' ? 'bg-emerald-100' : 'bg-sky-100')}>{completionUploadResult === 'error' ? '!' : completionUploadResult === 'success' ? '✓' : completionUploadPhase === 'sync' ? '↻' : '↑'}</span><div><h2 id="completion-upload-title" className="text-lg font-black">結案照片上傳</h2><p className="mt-1 text-sm text-slate-600">{completionUploadStatus}</p></div></div><div className="mt-5" role="progressbar" aria-label="結案照片上傳進度" aria-valuemin="0" aria-valuemax="100" aria-valuenow={completionUploadProgress}><div className="mb-2 flex justify-between text-sm font-black"><span>{completionUploadPhase === 'upload' ? '第 1 階段：傳送照片' : completionUploadPhase === 'sync' ? '第 2 階段：Google Drive 同步' : '處理結果'}</span><span>{completionUploadProgress}%</span></div><div className="h-4 overflow-hidden rounded-full bg-slate-200"><div className={'h-full rounded-full transition-[width] duration-200 ' + (completionUploadResult === 'error' ? 'bg-rose-500' : completionUploadPhase === 'sync' ? 'animate-pulse bg-sky-500' : 'bg-emerald-600')} style={{ width: `${completionUploadProgress}%` }}/></div><div className="mt-4 grid grid-cols-2 gap-2 rounded-xl bg-slate-50 p-3 text-xs"><div><span className="block text-slate-500">已傳送／總容量</span><strong className="mt-1 block text-sm text-slate-800">{formatBytes(completionUploadBytes.uploaded)} / {formatBytes(completionUploadBytes.total)}</strong></div><div><span className="block text-slate-500">剩餘容量</span><strong className="mt-1 block text-sm text-slate-800">{formatBytes(completionUploadBytes.total - completionUploadBytes.uploaded)}</strong></div><div className="col-span-2 border-t pt-2 text-slate-600">已完成 {completionUploadBytes.completedFiles} / {completionUploadBytes.totalFiles} 張</div></div>{completionUploadResult === 'uploading' ? <p className="mt-3 text-center text-xs font-bold text-slate-500">{completionUploadPhase === 'sync' ? '檔案已傳送完成，雲端同步期間請勿關閉頁面' : '請勿關閉或重新整理此頁面'}</p> : <button type="button" onClick={() => { setCompletionUploadProgress(null); setCompletionUploadStatus(''); setCompletionUploadResult(''); setCompletionUploadPhase('') }} className={'mt-5 w-full rounded-xl py-3 font-black text-white ' + (completionUploadResult === 'error' ? 'bg-rose-600' : 'bg-emerald-700')}>關閉</button>}</div></div></div>}
   </div>
 }
