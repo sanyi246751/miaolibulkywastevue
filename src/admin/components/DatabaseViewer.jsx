@@ -1,4 +1,4 @@
-import { useEffect, useState } from '../../vueHooks.js'
+import { useEffect, useRef, useState } from '../../vueHooks.js'
 import { adminPost } from '../../api.js'
 
 const caseColumns = [['case_no','預約單號'],['applicant','申請人姓名'],['phone','聯絡電話'],['email','電子郵件'],['address','清運地址'],['waste_type','申報清運品項'],['quantity','申報件數'],['status','案件狀態'],['requested_scheduled_at','民眾希望清運日期'],['scheduled_at','管理端排定清運日期'],['dispatch_period','清運時段'],['dispatch_trip','班次'],['vehicle_no','派車車號'],['worker_name','清運人員'],['dispatch_origin','清運車出發點'],['dispatch_note','派車／現場備註'],['quantity_review_status','人工覆核狀態'],['confirmed_items','人工確認品項明細'],['review_note','人工覆核說明'],['chargeable_quantity','計費件數'],['fee_amount','應收費用'],['annual_count','年度申請次數'],['photo_paths','待清運照片'],['completion_photo_paths','結案照片'],['ai_result','AI 判讀結果'],['latitude','緯度'],['longitude','經度'],['completion_distance_km','結案里程'],['completion_carbon_kg','結案碳排量'],['report_source','申請來源'],['created_at','建立時間'],['updated_at','最後更新時間']]
@@ -10,29 +10,32 @@ const photoList = (value) => Array.isArray(value) ? value : (() => { try { const
 function PhotoCell({ value }) {
   const [loadingId, setLoadingId] = useState('')
   const [preview, setPreview] = useState(null)
+  const previewRequest = useRef(0)
   const ids = photoList(value).map((photo) => typeof photo === 'string' ? photo : photo?.fileId || photo?.path).filter(Boolean)
   if (!ids.length) return <span>—</span>
   const openPhoto = async (fileId, index) => {
+    const requestId = ++previewRequest.current
     setPreview({ title: `案件照片 ${index + 1}`, loading: true, src: '', error: '' })
     try {
       setLoadingId(fileId)
       if (fileId.startsWith('drive:')) {
         try {
           const directResult = await adminPost('getDriveImageUrl', { fileId })
-          setPreview({ title: `案件照片 ${index + 1}`, loading: false, src: directResult.url, error: '' })
+          if (previewRequest.current === requestId) setPreview({ title: `案件照片 ${index + 1}`, loading: false, src: directResult.url, error: '' })
           return
         } catch { /* 舊 GAS 尚未部署 share 時改用安全的 Base64 轉送。 */ }
       }
       const result = await adminPost('getImage', { fileId })
       const src = `data:${result.mimeType || 'image/jpeg'};base64,${result.base64}`
-      setPreview({ title: `案件照片 ${index + 1}`, loading: false, src, error: '' })
+      if (previewRequest.current === requestId) setPreview({ title: `案件照片 ${index + 1}`, loading: false, src, error: '' })
     } catch (error) {
-      setPreview({ title: `案件照片 ${index + 1}`, loading: false, src: '', error: error.message || '照片讀取失敗' })
+      if (previewRequest.current === requestId) setPreview({ title: `案件照片 ${index + 1}`, loading: false, src: '', error: error.message || '照片讀取失敗' })
     } finally {
-      setLoadingId('')
+      if (previewRequest.current === requestId) setLoadingId('')
     }
   }
-  return <><div className="flex min-w-[96px] flex-col items-start gap-1">{ids.map((fileId, index) => <button key={`${fileId}-${index}`} type="button" disabled={Boolean(loadingId)} onClick={() => openPhoto(fileId, index)} className="text-sm font-bold text-emerald-700 underline underline-offset-2 hover:text-emerald-900 disabled:cursor-wait disabled:text-slate-400">{loadingId === fileId ? '照片讀取中…' : `查看照片 ${index + 1}`}</button>)}</div>{preview && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/75 p-4" role="dialog" aria-modal="true" aria-label={preview.title} onClick={() => !preview.loading && setPreview(null)}><div className="w-full max-w-5xl rounded-2xl bg-white p-4 shadow-2xl" onClick={(event) => event.stopPropagation()}><div className="mb-3 flex items-center justify-between gap-3"><h3 className="font-black text-slate-900">{preview.title}</h3><button type="button" disabled={preview.loading} onClick={() => setPreview(null)} className="rounded-lg bg-slate-100 px-3 py-1.5 font-black text-slate-700 disabled:opacity-40">✕ 關閉</button></div>{preview.loading ? <div className="flex h-72 flex-col items-center justify-center gap-3 text-slate-500"><span className="h-9 w-9 animate-spin rounded-full border-4 border-slate-200 border-t-emerald-600"/><span className="text-sm font-bold">照片讀取中…</span></div> : preview.error ? <div className="flex h-72 items-center justify-center rounded-xl bg-rose-50 p-6 text-center font-bold text-rose-700">照片讀取失敗：{preview.error}</div> : <div className="flex max-h-[78vh] justify-center overflow-auto rounded-xl bg-slate-950"><img src={preview.src} alt={preview.title} className="max-h-[78vh] max-w-full object-contain"/></div>}</div></div>}</>
+  const closePreview = () => { previewRequest.current += 1; setLoadingId(''); setPreview(null) }
+  return <><div className="flex min-w-[96px] flex-col items-start gap-1">{ids.map((fileId, index) => <button key={`${fileId}-${index}`} type="button" disabled={Boolean(loadingId)} onClick={() => openPhoto(fileId, index)} className="text-sm font-bold text-emerald-700 underline underline-offset-2 hover:text-emerald-900 disabled:cursor-wait disabled:text-slate-400">{loadingId === fileId ? '照片讀取中…' : `查看照片 ${index + 1}`}</button>)}</div>{preview && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/75 p-4" role="dialog" aria-modal="true" aria-label={preview.title} onClick={closePreview}><div className="w-full max-w-5xl rounded-2xl bg-white p-4 shadow-2xl" onClick={(event) => event.stopPropagation()}><div className="mb-3 flex items-center justify-between gap-3"><h3 className="font-black text-slate-900">{preview.title}</h3><button type="button" onClick={closePreview} className="rounded-lg bg-slate-100 px-3 py-1.5 font-black text-slate-700">✕ 關閉</button></div>{preview.loading ? <div className="flex h-72 flex-col items-center justify-center gap-3 text-slate-500"><span className="h-9 w-9 animate-spin rounded-full border-4 border-slate-200 border-t-emerald-600"/><span className="text-sm font-bold">照片讀取中…</span></div> : preview.error ? <div className="flex h-72 items-center justify-center rounded-xl bg-rose-50 p-6 text-center font-bold text-rose-700">照片讀取失敗：{preview.error}</div> : <div className="flex max-h-[78vh] justify-center overflow-auto rounded-xl bg-slate-950"><img src={preview.src} alt={preview.title} className="max-h-[78vh] max-w-full object-contain"/></div>}</div></div>}</>
 }
 
 export default function DatabaseViewer({ cases, getMinguoTime }) {
