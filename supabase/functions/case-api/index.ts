@@ -32,6 +32,21 @@ const uploadDrivePhoto = async (supabase: { from: (table: string) => any }, case
   if (!result.fileId) throw new Error("Google Drive 未回傳檔案識別碼")
   return `drive:${result.fileId}`
 }
+const mergeCompletedPhotoJobs = (cases: any[], jobs: any[]) => {
+  const pathsByCase = new Map<string, { pending: string[], completion: string[] }>()
+  for (const job of jobs) {
+    if (job.status !== "completed" || !job.drive_file_id || !["pending", "completion"].includes(job.photo_kind)) continue
+    const paths = pathsByCase.get(job.case_no) || { pending: [], completion: [] }
+    paths[job.photo_kind as "pending" | "completion"].push(`drive:${job.drive_file_id}`)
+    pathsByCase.set(job.case_no, paths)
+  }
+  return cases.map((item) => {
+    const synced = pathsByCase.get(item.case_no)
+    if (!synced) return item
+    const merge = (current: unknown, recovered: string[]) => [...new Set([...(Array.isArray(current) ? current.map(String) : []), ...recovered])]
+    return { ...item, photo_paths: merge(item.photo_paths, synced.pending), completion_photo_paths: merge(item.completion_photo_paths, synced.completion) }
+  })
+}
 const syncCasePhotos = async (supabase: any, caseNo: string) => {
   const { data: jobs } = await supabase.from("photo_sync_jobs").select("*").eq("case_no", caseNo).in("status", ["pending", "failed", "syncing"]).order("id")
   for (const job of jobs || []) {
@@ -46,7 +61,7 @@ const syncCasePhotos = async (supabase: any, caseNo: string) => {
       const { data: currentCase, error: caseError } = await supabase.from("cases").select(column).eq("case_no", caseNo).single()
       if (caseError || !currentCase) throw new Error(caseError?.message || "找不到案件資料")
       const currentPaths = Array.isArray(currentCase[column]) ? currentCase[column].map(String) : []
-      const nextPaths = currentPaths.map((path) => path === job.storage_path ? drivePath : path)
+      const nextPaths = currentPaths.includes(job.storage_path) ? currentPaths.map((path) => path === job.storage_path ? drivePath : path) : [...currentPaths, drivePath]
       const { error: updateError } = await supabase.from("cases").update({ [column]: nextPaths }).eq("case_no", caseNo)
       if (updateError) throw new Error(updateError.message)
       const { error: removeError } = await supabase.storage.from("case-photos").remove([job.storage_path])
@@ -285,7 +300,13 @@ export default {
       const { error: removeError } = await ctx.supabaseAdmin.storage.from("case-photos").remove([path])
       return removeError ? error(removeError.message, 500) : reply({ ok: true })
     }
-    if (action === "list") { const { data, error: dbError } = await ctx.supabaseAdmin.from("cases").select("*").order("created_at", { ascending: false }); return dbError ? error(dbError.message, 500) : reply({ ok: true, cases: data || [] }) }
+    if (action === "list") {
+      const [{ data, error: dbError }, { data: completedJobs, error: jobsError }] = await Promise.all([
+        ctx.supabaseAdmin.from("cases").select("*").order("created_at", { ascending: false }),
+        ctx.supabaseAdmin.from("photo_sync_jobs").select("case_no,photo_kind,status,drive_file_id").eq("status", "completed").not("drive_file_id", "is", null),
+      ])
+      return dbError || jobsError ? error(dbError?.message || jobsError?.message || "讀取案件失敗", 500) : reply({ ok: true, cases: mergeCompletedPhotoJobs(data || [], completedJobs || []) })
+    }
     if (action === "databaseView") {
       const [casesResult, vehiclesResult, workersResult, settingsResult, historyResult, photoSyncResult] = await Promise.all([
         ctx.supabaseAdmin.from("cases").select("*").order("created_at", { ascending: false }),
@@ -296,7 +317,8 @@ export default {
         ctx.supabaseAdmin.from("photo_sync_jobs").select("*").order("created_at", { ascending: false }),
       ])
       const dbError = casesResult.error || vehiclesResult.error || workersResult.error || settingsResult.error || historyResult.error || photoSyncResult.error
-      return dbError ? error(dbError.message, 500) : reply({ ok: true, database: { cases: casesResult.data || [], vehicles: vehiclesResult.data || [], workers: workersResult.data || [], system_settings: settingsResult.data || [], case_history: historyResult.data || [], photo_sync_jobs: photoSyncResult.data || [] } })
+      const mergedCases = mergeCompletedPhotoJobs(casesResult.data || [], photoSyncResult.data || [])
+      return dbError ? error(dbError.message, 500) : reply({ ok: true, database: { cases: mergedCases, vehicles: vehiclesResult.data || [], workers: workersResult.data || [], system_settings: settingsResult.data || [], case_history: historyResult.data || [], photo_sync_jobs: photoSyncResult.data || [] } })
     }
     if (action === "databaseDelete") {
       const table = String(body.table || ""), allowed = ["cases", "vehicles", "workers", "system_settings", "case_history", "photo_sync_jobs"]

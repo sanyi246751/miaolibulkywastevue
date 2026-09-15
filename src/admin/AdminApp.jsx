@@ -27,6 +27,10 @@ const dispatchDateKey = (value) => {
 }
 const dispatchGroupKey = (item) => [dispatchDateKey(item.scheduled_at), String(item.vehicle_no || '').trim(), String(item.dispatch_period || ''), Number(item.dispatch_trip || 1)].join('|')
 const splitCrewMembers = (value) => String(value || '').split(/[、，,\n]+/).map((member) => member.trim()).filter(Boolean)
+const photoList = (value) => {
+  if (Array.isArray(value)) return value
+  try { const parsed = JSON.parse(value || '[]'); return Array.isArray(parsed) ? parsed : [] } catch { return [] }
+}
 
 const dateTimeLocal = (value) => {
   if (!value) return ''
@@ -147,7 +151,8 @@ export default function AdminApp() {
     const completionMatch = String(selected?.dispatch_note || '').match(/結案照片 Google Drive ID：(\[[^\n]*\])/)
     let notePhotoPaths = []
     try { notePhotoPaths = completionMatch ? JSON.parse(completionMatch[1]) : [] } catch { notePhotoPaths = [] }
-    const photoPaths = page === '清運完成' ? (Array.isArray(selected?.completion_photo_paths) && selected.completion_photo_paths.length ? selected.completion_photo_paths : notePhotoPaths) : Array.isArray(selected?.photo_paths) ? selected.photo_paths : []
+    const completionPaths = photoList(selected?.completion_photo_paths)
+    const photoPaths = page === '清運完成' ? (completionPaths.length ? completionPaths : notePhotoPaths) : photoList(selected?.photo_paths)
     let cancelled = false
     setPendingPhotos([])
     if (!['待處理', '已排班', '清運完成'].includes(page) || !photoPaths.length) return () => { cancelled = true }

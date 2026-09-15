@@ -2,7 +2,7 @@ import { useEffect, useState } from '../../vueHooks.js'
 import { adminPost } from '../../api.js'
 
 const caseColumns = [['case_no','預約單號'],['applicant','申請人姓名'],['phone','聯絡電話'],['email','電子郵件'],['address','清運地址'],['waste_type','申報清運品項'],['quantity','申報件數'],['status','案件狀態'],['requested_scheduled_at','民眾希望清運日期'],['scheduled_at','管理端排定清運日期'],['dispatch_period','清運時段'],['dispatch_trip','班次'],['vehicle_no','派車車號'],['worker_name','清運人員'],['dispatch_origin','清運車出發點'],['dispatch_note','派車／現場備註'],['quantity_review_status','人工覆核狀態'],['confirmed_items','人工確認品項明細'],['review_note','人工覆核說明'],['chargeable_quantity','計費件數'],['fee_amount','應收費用'],['annual_count','年度申請次數'],['photo_paths','待清運照片'],['completion_photo_paths','結案照片'],['ai_result','AI 判讀結果'],['latitude','緯度'],['longitude','經度'],['completion_distance_km','結案里程'],['completion_carbon_kg','結案碳排量'],['report_source','申請來源'],['created_at','建立時間'],['updated_at','最後更新時間']]
-const defaults = ['case_no','applicant','address','waste_type','quantity','status','requested_scheduled_at','dispatch_period','vehicle_no']
+const defaults = ['case_no','applicant','address','waste_type','quantity','status','requested_scheduled_at','dispatch_period','vehicle_no','completion_photo_paths']
 const tables = [['cases','案件資料'],['vehicles','車輛資料'],['workers','清運人員資料'],['system_settings','系統設定'],['case_history','案件歷程'],['photo_sync_jobs','照片同步紀錄']]
 const labels = {id:'資料識別碼',case_no:'預約單號',applicant:'申請人姓名',phone:'聯絡電話',email:'電子郵件',address:'清運地址',waste_type:'申報清運品項',quantity:'申報件數',status:'案件狀態',vehicle_no:'派車車號',fuel_efficiency:'公里／公升',co2_per_liter:'kg CO₂／L',active:'啟用狀態',name:'姓名',setting_key:'設定名稱',setting_value:'設定值',case_id:'案件識別碼',action:'動作',detail:'內容',actor_id:'操作人識別碼',created_at:'建立時間',updated_at:'最後更新時間'}
 
@@ -35,7 +35,7 @@ function PhotoCell({ value }) {
 }
 
 export default function DatabaseViewer({ cases, getMinguoTime }) {
-  const [selected, setSelected] = useState(() => { try { const saved = JSON.parse(localStorage.getItem('miaoli_database_columns') || '[]'); return saved.length ? saved : defaults } catch { return defaults } })
+  const [selected, setSelected] = useState(() => { try { const saved = JSON.parse(localStorage.getItem('miaoli_database_columns') || '[]'); return saved.length ? [...saved, ...defaults.filter((key) => key === 'completion_photo_paths' && !saved.includes(key))] : defaults } catch { return defaults } })
   const [table, setTable] = useState('cases'), [database, setDatabase] = useState({ cases }), [loading, setLoading] = useState(false)
   const [keyword, setKeyword] = useState(''), [period, setPeriod] = useState('all'), [dateFrom, setDateFrom] = useState(''), [dateTo, setDateTo] = useState('')
   const [draggingKey, setDraggingKey] = useState('')
