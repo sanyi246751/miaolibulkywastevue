@@ -26,9 +26,24 @@ export const adminPost = async (action, payload = {}) => {
 }
 export const createPublicCase = async (values) => (await request('publicCreate', values)).caseNo
 export const preparePublicUploads = async (photos) => request('publicPrepareUploads', { photos })
-export const uploadSignedPhoto = async (signedUrl, file, mimeType) => {
-  const response = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': mimeType }, body: file })
-  if (!response.ok) throw new Error('照片暫存上傳失敗')
+export const uploadSignedPhoto = async (signedUrl, file, mimeType, onProgress) => {
+  if (typeof onProgress !== 'function') {
+    const response = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': mimeType }, body: file })
+    if (!response.ok) throw new Error('照片暫存上傳失敗')
+    return
+  }
+  await new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest()
+    request.open('PUT', signedUrl)
+    request.setRequestHeader('Content-Type', mimeType)
+    request.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress(event.loaded, event.total)
+    }
+    request.onload = () => request.status >= 200 && request.status < 300 ? resolve() : reject(new Error('照片暫存上傳失敗'))
+    request.onerror = () => reject(new Error('照片暫存上傳失敗'))
+    request.onabort = () => reject(new Error('照片上傳已取消'))
+    request.send(file)
+  })
 }
 export const queryCase = async (caseNo, phone) => ({ case: (await request('query', { caseNo, phone })).case })
 export const workerGet = async (action, parameters = {}) => {
