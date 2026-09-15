@@ -220,7 +220,7 @@ export default {
     if (!permittedAdminEmails.length || authError || !permittedAdminEmails.includes(userResult.user?.email?.toLowerCase() || "")) return error("管理員權限不足", 403)
     if (action === "adminPrepareCompletionUploads") {
       const caseNo = String(body.caseNo || ""), photos = Array.isArray(body.photos) ? body.photos : []
-      if (!caseNo || !photos.length || photos.length > 2) return error("結案照片資料不正確")
+      if (!caseNo || !photos.length || photos.length > 8) return error("結案照片須為 1 至 8 張")
       const sessionId = crypto.randomUUID(), paths: string[] = []
       for (const [index, photo] of photos.entries()) {
         const info = photo as Record<string, unknown>, mimeType = String(info.mimeType || ""), size = Number(info.size || 0)
@@ -237,7 +237,7 @@ export default {
     }
     if (action === "adminQueueCompletionPhotos") {
       const caseNo = String(body.caseNo || ""), stagedPhotoPaths = Array.isArray(body.stagedPhotoPaths) ? body.stagedPhotoPaths.map(String) : []
-      if (!caseNo || !stagedPhotoPaths.length || stagedPhotoPaths.length > 2 || stagedPhotoPaths.some((path) => !path.startsWith("staging/"))) return error("結案照片暫存路徑不正確")
+      if (!caseNo || !stagedPhotoPaths.length || stagedPhotoPaths.length > 8 || stagedPhotoPaths.some((path) => !path.startsWith("staging/"))) return error("結案照片暫存路徑不正確")
       const { error: jobError } = await ctx.supabaseAdmin.from("photo_sync_jobs").insert(stagedPhotoPaths.map((storagePath, index) => ({ case_no: caseNo, storage_path: storagePath, target_file_name: `${caseNo}-finish-${index + 1}.jpg`, photo_kind: "completion" })))
       if (jobError) return error(jobError.message, 500)
       await syncCasePhotos(ctx.supabaseAdmin, caseNo)

@@ -95,6 +95,8 @@ export default function AdminApp() {
   const [pendingPhotos, setPendingPhotos] = useState([])
   const [pendingPhotoPreview, setPendingPhotoPreview] = useState(null)
   const [completionUploadProgress, setCompletionUploadProgress] = useState(null)
+  const [completionUploadStatus, setCompletionUploadStatus] = useState('')
+  const [completionUploadResult, setCompletionUploadResult] = useState('')
   const completionInput = useRef(null)
 
   const loadCases = async (selectStatus = '') => {
@@ -357,10 +359,13 @@ export default function AdminApp() {
     const files = Array.from(event.target.files || [])
     event.target.value = ''
     if (!files.length || !draft) return
+    if (files.length > 8) return setMessage('結案照片最多上傳 8 張')
     if (files.some((file) => !file.type.startsWith('image/'))) return setMessage('請選擇圖片檔案')
     if (files.some((file) => file.size > 8 * 1024 * 1024)) return setMessage('每張結案照片不可超過 8 MB')
     setCompletionUploadProgress(0)
-    setLoading(true); setMessage(`正在上傳結案照片（0/${files.length}）…`)
+    setCompletionUploadStatus(`準備上傳 ${files.length} 張結案照片…`)
+    setCompletionUploadResult('uploading')
+    setLoading(true); setMessage('')
     try {
       const uploadSession = await adminPost('adminPrepareCompletionUploads', { caseNo: draft.case_no, photos: files.map((file) => ({ mimeType: file.type, size: file.size })) })
       const uploadedBytes = files.map(() => 0)
@@ -369,10 +374,10 @@ export default function AdminApp() {
         uploadedBytes[index] = loaded
         const percent = totalBytes ? Math.round(uploadedBytes.reduce((total, value) => total + value, 0) / totalBytes * 100) : 100
         setCompletionUploadProgress(Math.min(100, percent))
-        setMessage(`正在上傳結案照片（${Math.min(100, percent)}%）…`)
+        setCompletionUploadStatus(`正在上傳 ${files.length} 張結案照片（${Math.min(100, percent)}%）…`)
       })))
       setCompletionUploadProgress(100)
-      setMessage('照片上傳完成，正在更新案件並同步至 Google Drive…')
+      setCompletionUploadStatus('照片上傳完成，正在更新案件並同步至 Google Drive…')
       const photoIds = uploadSession.uploads.map((upload) => upload.path)
       const note = String(draft.dispatch_note || '').trim()
       const routeKey = `${dispatchOptions.route_origin}|${scheduledRouteCases.map((item) => item.case_no).sort().join('|')}`
@@ -383,8 +388,13 @@ export default function AdminApp() {
       await adminPost('upsert', { case: toCasePayload(next) })
       await adminPost('adminQueueCompletionPhotos', { caseNo: draft.case_no, stagedPhotoPaths: photoIds })
       setMessage(`已上傳 ${photoIds.length} 張結案照片，案件已標記為清運完成${route && !alreadyRecorded ? '，班次里程與碳排量已計入' : ''}`)
+      setCompletionUploadStatus(`已完成 ${photoIds.length} 張結案照片上傳與案件結案。`)
+      setCompletionUploadResult('success')
       await loadCases()
-    } catch (error) { setMessage(error.message) } finally { setLoading(false); setCompletionUploadProgress(null) }
+    } catch (error) {
+      setCompletionUploadStatus(`上傳失敗：${error.message}`)
+      setCompletionUploadResult('error')
+    } finally { setLoading(false) }
   }
 
   const reviewApproved = draft?.quantity_review_status === '人工已核可'
@@ -414,7 +424,7 @@ export default function AdminApp() {
         <p className="mt-4 text-xs font-bold text-slate-500">共 {visibleCases.length} 件</p>
         <div className="mt-2 max-h-[68vh] space-y-2 overflow-auto">{visibleCases.map((item) => { const groupStyle = page === '已排班' ? scheduledGroupStyles[dispatchGroupKey(item)] : null; return <button key={item.case_no} onClick={() => setSelectedNo(item.case_no)} style={groupStyle || undefined} className={`w-full rounded-xl border p-3 text-left ${groupStyle ? 'border-2' : selectedNo === item.case_no ? 'border-emerald-600 bg-emerald-50' : 'border-slate-200'}`}><div className="flex justify-between gap-2"><strong>{item.case_no}</strong>{page === '案件清單與進度' && <span className="text-xs font-bold text-emerald-700">{item.status}</span>}</div><p className="mt-1 text-sm">{item.applicant}｜{item.waste_type}</p><p className="mt-1 truncate text-xs text-slate-500">{item.address}</p>{groupStyle && <p className="mt-1 text-[10px] font-black text-slate-600">同班次｜{item.vehicle_no} 車・{item.dispatch_period}・第 {item.dispatch_trip || 1} 班</p>}</button>})}{!loading && !visibleCases.length && <p className="rounded-xl border-2 border-dashed border-slate-200 px-4 py-10 text-center text-sm font-bold text-slate-400">目前無案件</p>}</div>
       </section>
-      <section className="rounded-2xl bg-white p-5 shadow-sm">{message && <div className="mb-4 rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-800">{message}{completionUploadProgress !== null && <div className="mt-3" role="progressbar" aria-label="結案照片上傳進度" aria-valuemin="0" aria-valuemax="100" aria-valuenow={completionUploadProgress}><div className="mb-1 flex items-center justify-between text-xs"><span>照片上傳進度</span><span>{completionUploadProgress}%</span></div><div className="h-3 overflow-hidden rounded-full bg-amber-100"><div className="h-full rounded-full bg-emerald-600 transition-[width] duration-200" style={{ width: `${completionUploadProgress}%` }}/></div></div>}</div>}{!visibleCases.length ? <p className="py-20 text-center font-bold text-slate-400">目前無案件</p> : !draft ? <p className="py-20 text-center text-slate-400">請選擇案件</p> : <div className="space-y-6">
+      <section className="rounded-2xl bg-white p-5 shadow-sm">{message && <div className="mb-4 rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-800">{message}</div>}{!visibleCases.length ? <p className="py-20 text-center font-bold text-slate-400">目前無案件</p> : !draft ? <p className="py-20 text-center text-slate-400">請選擇案件</p> : <div className="space-y-6">
         <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-sm font-bold text-emerald-700">{draft.report_source}</p><h2 className="text-2xl font-black">{draft.case_no}</h2><p className="mt-1 text-sm text-slate-500">{draft.applicant}｜{draft.phone}</p></div>{page === '案件清單與進度' && <span className="rounded-full bg-emerald-100 px-4 py-2 text-sm font-black text-emerald-800">{draft.status}</span>}</div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"><Info label="地址" value={draft.address}/><Info label="申報內容" value={`${draft.waste_type}，${draft.quantity} 件`}/><Info label="年度免費額度" value={page === '待處理' ? `本次為本年度第 ${annualApplicationCount} 次申請，尚餘 ${annualFreeRemaining} 件免費額度` : `${annualApplicationCount} 次（${annualApplicationCount <= 3 && annualFreeRemaining > 0 ? `尚餘 ${annualFreeRemaining} 件免費` : '免費額度已用完'}）`}/><Info label="費用" value={`${Number(draft.fee_amount || 0).toLocaleString()} 元`}/>{page === '待處理' ? <Info label="民眾希望清運日期／時段" value={`${getMinguoTime(draft.requested_scheduled_at || draft.scheduled_at)}／${draft.dispatch_period || '—'}`}/> : <>{page !== '已排班' && <><Info label="建立時間" value={getMinguoTime(draft.created_at)}/><Info label="最後更新" value={getMinguoTime(draft.updated_at)}/></>}<Info label={draft.status === '已排班' ? '排定清運日期與時間' : '民眾希望日期'} value={getMinguoTime(draft.status === '已排班' ? (draft.scheduled_at || draft.requested_scheduled_at) : (draft.requested_scheduled_at || draft.scheduled_at))}/><Info label={draft.status === '已排班' ? '排定清運時段／第幾班' : '民眾希望時段'} value={`${draft.dispatch_period || '—'}／第 ${draft.dispatch_trip || 1} 班`}/><Info label="派車車號／清運人員" value={`${draft.vehicle_no || '—'}／${draft.worker_name || '—'}`}/></>} {draft.status === '已取消' && <Info label="撤案原因／備註" value={draft.dispatch_note}/>}</div>
         {['待處理', '已排班'].includes(page) && <section className="rounded-2xl border border-sky-200 bg-sky-50 p-4"><h3 className="font-black text-sky-950">{page === '已排班' ? '未清運照片' : '待清運照片'}</h3>{pendingPhotos.length ? <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">{pendingPhotos.map((photo) => <button type="button" key={photo.id} disabled={photo.error} onClick={() => setPendingPhotoPreview(photo)} className="overflow-hidden rounded-xl border border-sky-200 bg-white text-left transition-shadow hover:shadow-md disabled:cursor-default">{photo.error ? <span className="flex h-24 items-center justify-center p-3 text-center text-xs font-bold text-rose-700">照片載入失敗</span> : <img src={photo.src} alt={`${page === '已排班' ? '未清運' : '待清運'}照片 ${photo.index + 1}`} className="h-24 w-full object-cover"/>}<span className="block p-2 text-center text-xs font-bold text-sky-800">照片 {photo.index + 1}</span></button>)}</div> : <p className="mt-2 text-sm font-bold text-slate-500">尚未上傳{page === '已排班' ? '未清運' : '待清運'}照片。</p>}</section>}
@@ -427,6 +437,7 @@ export default function AdminApp() {
         {page === '待處理' && (!dispatchOptions.vehicles.length || !dispatchOptions.workers.length) && <p className="-mt-5 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-bold text-amber-800">尚未取得可選的派車車號或清運人員。請先在桌面版「派車設定」儲存設定並確認雲端同步成功，再按網頁右上角「重新整理」。</p>}
       </div>}</section>
     </div></main>}
+    {completionUploadProgress !== null && <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/70 p-4" role="dialog" aria-modal="true" aria-labelledby="completion-upload-title"><div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl"><div className="flex items-center gap-3"><span className={'flex h-11 w-11 items-center justify-center rounded-full text-xl ' + (completionUploadResult === 'error' ? 'bg-rose-100' : completionUploadResult === 'success' ? 'bg-emerald-100' : 'bg-sky-100')}>{completionUploadResult === 'error' ? '!' : completionUploadResult === 'success' ? '✓' : '↑'}</span><div><h2 id="completion-upload-title" className="text-lg font-black">結案照片上傳</h2><p className="mt-1 text-sm text-slate-600">{completionUploadStatus}</p></div></div><div className="mt-5" role="progressbar" aria-label="結案照片上傳進度" aria-valuemin="0" aria-valuemax="100" aria-valuenow={completionUploadProgress}><div className="mb-2 flex justify-between text-sm font-black"><span>上傳進度</span><span>{completionUploadProgress}%</span></div><div className="h-4 overflow-hidden rounded-full bg-slate-200"><div className={'h-full rounded-full transition-[width] duration-200 ' + (completionUploadResult === 'error' ? 'bg-rose-500' : 'bg-emerald-600')} style={{ width: `${completionUploadProgress}%` }}/></div></div>{completionUploadResult === 'uploading' ? <p className="mt-3 text-center text-xs font-bold text-slate-500">請勿關閉或重新整理此頁面</p> : <button type="button" onClick={() => { setCompletionUploadProgress(null); setCompletionUploadStatus(''); setCompletionUploadResult('') }} className={'mt-5 w-full rounded-xl py-3 font-black text-white ' + (completionUploadResult === 'error' ? 'bg-rose-600' : 'bg-emerald-700')}>關閉</button>}</div></div>}
   </div>
 }
 
