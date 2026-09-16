@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from '../vueHooks.js'
 import { adminLogin, adminPost, toCasePayload, uploadSignedPhoto } from '../api.js'
 import { getMinguoTime } from './utils/formatters.js'
 import SystemSettings from './components/SystemSettings.jsx'
-import SupabaseDashboard from './components/SupabaseDashboard.jsx'
+import SupabaseDashboard from './components/DashboardPanel.jsx'
 import PhoneApplication from './components/PhoneApplication.jsx'
 import DatabaseViewer from './components/DatabaseViewer.jsx'
 
