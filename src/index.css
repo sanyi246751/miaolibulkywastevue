@@ -163,6 +163,11 @@ main[class*="max-w-[1600px]"] > header {
   display: none;
 }
 
+/* Dashboard search lives in the top filter toolbar. */
+.dashboard-panel > div.grid section input[type="search"] {
+  display: none;
+}
+
 /* Keep database search controls in a narrow left rail and give fields more room. */
 @media (min-width: 1024px) {
   main[class*="max-w-[1600px]"] > section:first-of-type > div:first-child {
